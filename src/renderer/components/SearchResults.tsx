@@ -65,7 +65,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
                     : '일치하는 String이 없습니다.')
                 : 
                 <div className="flex flex-row items-center gap-4 text-figma-text-secondary whitespace-pre-line" >
-                  <p className="text-3xl">🐻🗝️</p>
+                  <p className="text-3xl">🐻</p>
                   <p>{`안녕하세요 : )
                   저는 UX Design팀에서 만든 프로그램입니다 ♫`}</p>
                 </div>
