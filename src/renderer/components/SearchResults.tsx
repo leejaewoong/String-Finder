@@ -109,7 +109,19 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
                       onClick={() => onRowClick(result)}
                       className="table-row cursor-pointer border-b border-figma-border"
                     >
-                      <td className="p-3 text-figma-text-secondary">{result.id}</td>
+                      <td className="p-3 text-figma-text-secondary">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {searchMode === 'gdd' && result.isInputFolder && (
+                            <span
+                              className="flex justify-content items-center px-2 py-0.5 text-[10px] font-bold border rounded-full text-white bg-figma-danger/15 border-figma-danger whitespace-nowrap"
+                              title="아직 L10N되지 않은 String입니다."
+                            >
+                              UNRELEASED
+                            </span>
+                          )}
+                          <span>{result.id}</span>                          
+                        </div>
+                      </td>
                       <td className="p-3 text-figma-text-secondary">{result.value}</td>
                       <td className="pl-6">
                         <button
