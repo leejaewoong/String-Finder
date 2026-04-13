@@ -53,11 +53,13 @@ class SearchService {
 
     // 병렬 처리: ui_XX.json과 input 폴더 동시 검색
     const uiResults = this.searchUIFile(query, language, lowerQuery);
-    const inputResults = this.searchInputFolder(query, language, lowerQuery);
+    const inputResults = this.searchInputFolder(query, lowerQuery);
 
-    // 중복 제거: ui_XX.json에 있는 String ID는 input 폴더 결과 제외
-    const uiStringIds = new Set(uiResults.map(r => r.id));
-    const filteredInputResults = inputResults.filter(r => !uiStringIds.has(r.id));
+    // 중복 제거: ui_XX.json에 해당 String ID가 존재하면 input 폴더 결과 제외
+    // 쿼리 매칭 여부가 아닌, UI 파일 내 ID 존재 여부로 판단해야 정확한 Unreleased 판정 가능
+    const uiFileData = fileService.getFileData(language);
+    const allUiIds = uiFileData ? new Set(Object.keys(uiFileData)) : new Set<string>();
+    const filteredInputResults = inputResults.filter(r => !allUiIds.has(r.id));
 
     // 결과 병합 및 정렬
     const allResults = [...uiResults, ...filteredInputResults];
@@ -117,7 +119,7 @@ class SearchService {
     return results;
   }
 
-  private searchInputFolder(query: string, language: string, lowerQuery: string): SearchResult[] {
+  private searchInputFolder(query: string, lowerQuery: string): SearchResult[] {
     const inputFiles = fileService.getInputFiles();
     const results: SearchResult[] = [];
 
@@ -126,26 +128,22 @@ class SearchService {
         const lowerId = stringId.toLowerCase();
         const lowerText = obj.Text.toLowerCase();
 
-        let shouldAdd = false;
         let priority: number | undefined;
 
-        // 우선순위 1: String ID 완전 일치 (모든 언어)
+        // 우선순위 1: String ID 완전 일치
         if (lowerId === lowerQuery) {
-          shouldAdd = true;
           priority = 1;
         }
-        // 우선순위 2: Text 부분 일치 (모든 언어)
+        // 우선순위 2: Text 부분 일치
         else if (lowerText.includes(lowerQuery)) {
-          shouldAdd = true;
           priority = 2;
         }
-        // 우선순위 3: String ID 부분 일치 (모든 언어)
+        // 우선순위 3: String ID 부분 일치
         else if (lowerId.includes(lowerQuery)) {
-          shouldAdd = true;
           priority = 3;
         }
 
-        if (shouldAdd) {
+        if (priority !== undefined) {
           const distance = this.levenshteinDistance(lowerQuery, lowerText);
           results.push({
             id: stringId,
