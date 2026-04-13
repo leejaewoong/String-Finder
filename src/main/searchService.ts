@@ -53,7 +53,7 @@ class SearchService {
 
     // 병렬 처리: ui_XX.json과 input 폴더 동시 검색
     const uiResults = this.searchUIFile(query, language, lowerQuery);
-    const inputResults = this.searchInputFolder(query, lowerQuery);
+    const inputResults = this.searchInputFolder(query, language, lowerQuery);
 
     // 중복 제거: ui_XX.json에 해당 String ID가 존재하면 input 폴더 결과 제외
     // 쿼리 매칭 여부가 아닌, UI 파일 내 ID 존재 여부로 판단해야 정확한 Unreleased 판정 가능
@@ -65,10 +65,16 @@ class SearchService {
     const allResults = [...uiResults, ...filteredInputResults];
 
     // 1차: 우선순위 정렬 (낮을수록 우선)
-    // 2차: 레벤슈타인 거리 정렬 (작을수록 유사)
+    // 2차: 소스 가중치 정렬 (UI 파일 우선, input 폴더 후순위)
+    // 3차: 레벤슈타인 거리 정렬 (작을수록 유사)
     allResults.sort((a, b) => {
       if ((a.priority || 999) !== (b.priority || 999)) {
         return (a.priority || 999) - (b.priority || 999);
+      }
+      const aSource = a.isInputFolder ? 1 : 0;
+      const bSource = b.isInputFolder ? 1 : 0;
+      if (aSource !== bSource) {
+        return aSource - bSource;
       }
       return (a.distance || 0) - (b.distance || 0);
     });
@@ -119,7 +125,7 @@ class SearchService {
     return results;
   }
 
-  private searchInputFolder(query: string, lowerQuery: string): SearchResult[] {
+  private searchInputFolder(query: string, language: string, lowerQuery: string): SearchResult[] {
     const inputFiles = fileService.getInputFiles();
     const results: SearchResult[] = [];
 
@@ -134,8 +140,9 @@ class SearchService {
         if (lowerId === lowerQuery) {
           priority = 1;
         }
-        // 우선순위 2: Text 부분 일치
-        else if (lowerText.includes(lowerQuery)) {
+        // 우선순위 2: Text 부분 일치 (영어 선택 시에만)
+        // input Text는 항상 영어이므로 다른 언어에서는 매칭하지 않음
+        else if (language === 'en' && lowerText.includes(lowerQuery)) {
           priority = 2;
         }
         // 우선순위 3: String ID 부분 일치
