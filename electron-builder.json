@@ -19,11 +19,6 @@
       "to": "icon.ico"
     },
     {
-      "from": ".env",
-      "to": ".env",
-      "filter": ["**/*"]
-    },
-    {
       "from": "PATCH_NOTES.md",
       "to": "PATCH_NOTES.md"
     }

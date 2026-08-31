@@ -6,6 +6,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "cheerio": "^1.0.0",
     "dotenv": "^17.2.3",
     "electron-log": "^5.4.3",
     "electron-store": "^8.1.0",
@@ -39,6 +40,7 @@
     "tailwindcss": "^3.3.0",
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
+    "vitest": "^3.2.4",
     "webpack": "^5.88.0",
     "webpack-cli": "^5.1.0",
     "webpack-dev-server": "^4.15.0"
@@ -46,6 +48,9 @@
   "scripts": {
     "dev": "webpack serve --config webpack.renderer.config.js",
     "build": "webpack --mode production",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "electron": "electron .",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "start": "npm run build && npm run electron",
