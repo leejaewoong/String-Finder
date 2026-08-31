@@ -1,6 +1,19 @@
 import { load, type HTMLParser2Options } from 'cheerio';
+import { ReleaseDateSuggestion } from '../../shared/l10nTypes';
 
 const XML_OPTIONS: HTMLParser2Options = { xmlMode: true, decodeEntities: false };
+export const UPDATE_PAGE_ID = '134241634';
+
+interface ReleaseDatePage {
+  id: string;
+  title: string;
+  storage: string;
+}
+
+export interface ReleaseDatePageReader {
+  getPage(pageId: string, signal?: AbortSignal): Promise<ReleaseDatePage>;
+  getChildPages(pageId: string, signal?: AbortSignal): Promise<ReleaseDatePage[]>;
+}
 
 export interface SelectedVersion {
   version?: string;
@@ -68,4 +81,41 @@ export function extractPcReleaseDate(storage: string, version: string): string |
   }
 
   return undefined;
+}
+
+export async function resolveReleaseDate(
+  wikiTitle: string | undefined,
+  figmaTitles: string[],
+  reader: ReleaseDatePageReader,
+  signal?: AbortSignal,
+): Promise<ReleaseDateSuggestion> {
+  const wikiVersion = extractVersionCode(wikiTitle);
+  const figmaVersions = [...new Set(figmaTitles.map(extractVersionCode).filter(Boolean))] as string[];
+  const selected = selectVersionSource(wikiVersion, figmaVersions[0]);
+  if (!selected.version) {
+    return { releaseDate: '', source: 'manual' };
+  }
+
+  const root = await reader.getPage(UPDATE_PAGE_ID, signal);
+  const rootChildren = await reader.getChildPages(UPDATE_PAGE_ID, signal);
+  const year = `20${selected.version.slice(1, 3)}`;
+  const yearPages = rootChildren.filter((page) => page.title.includes(year));
+  const detailPages = (await Promise.all(
+    yearPages.map((page) => reader.getChildPages(page.id, signal)),
+  )).flat();
+  const candidates = [root, ...rootChildren, ...detailPages];
+  const releaseDate = candidates
+    .map((page) => extractPcReleaseDate(page.storage, selected.version!))
+    .find(Boolean) ?? '';
+
+  let warning = selected.warning;
+  if (!warning && figmaVersions.length > 1) {
+    warning = `Figma 파일의 버전이 서로 달라 ${figmaVersions[0]}을 기준으로 사용합니다.`;
+  }
+  return {
+    releaseDate,
+    version: selected.version,
+    source: selected.source,
+    ...(warning ? { warning } : {}),
+  };
 }

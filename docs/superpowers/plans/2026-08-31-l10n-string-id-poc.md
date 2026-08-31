@@ -150,7 +150,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 7: 커밋한다**
+- [x] **Step 7: 커밋한다**
 
 ```text
 ✨Feat(l10n/figmaTag.ts, l10n/figmaClient.ts, __tests__/figmaTag.test.ts): Figma 스트링 태그 분석 추가
@@ -214,7 +214,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 7: 커밋한다**
+- [x] **Step 7: 커밋한다**
 
 ```text
 ✨Feat(Many): Confluence 표 생성과 ReleaseDate 추출 추가
@@ -232,7 +232,7 @@ Expected: PASS.
 - Produces: `decideStringIds(rows, inference, index, releaseDate): StringIdDecision[]`
 - Produces: `L10nOpenAiClient.infer(rows, context, signal): Promise<StringIdInference[]>`
 
-- [ ] **Step 1: 기존 키 재사용과 COMMON 실패 테스트를 작성한다**
+- [x] **Step 1: 기존 키 재사용과 COMMON 실패 테스트를 작성한다**
 
 ```ts
 expect(decide(oneRow, indexWithSameFeatureKey).action).toBe('reuse');
@@ -243,19 +243,19 @@ expect(decide(crossFeatureRow, indexAcrossClanAndDev).stringId.startsWith('COMMO
 Run: `npm test -- stringIdRules.test.ts`
 Expected: 규칙 엔진이 없어 FAIL.
 
-- [ ] **Step 2: JSON 인덱스와 정규화를 구현한다**
+- [x] **Step 2: JSON 인덱스와 정규화를 구현한다**
 
 Text는 trim과 CRLF→LF만 정규화한다. 타입은 허용 타입과 ID suffix에서 추출한다. COMMON 선택은 최신 ReleaseDate, String ID 오름차순으로 결정한다.
 
-- [ ] **Step 3: 충돌·번호 테스트와 구현을 추가한다**
+- [x] **Step 3: 충돌·번호 테스트와 구현을 추가한다**
 
 기존 ID와 다른 Text는 같은 `FEATURE:SCREEN_TYPE` prefix의 최대 번호+1을 사용한다. 위키 내부 중복은 뒤 행부터 재번호화한다. 유효한 사용자 ID는 COMMON 우선 또는 실제 충돌이 아니면 보존한다.
 
-- [ ] **Step 4: LLM client를 구현한다**
+- [x] **Step 4: LLM client를 구현한다**
 
 한 요청에 처리 가능한 행을 JSON array로 보내고 `rowKey`, `feature`, `screen`, `type`만 받는다. feature 후보는 실제 `ui_*.json` 파일명, type은 허용 목록으로 제한한다. 응답을 schema 수준으로 검증하고 잘못된 행만 issue로 반환한다.
 
-- [ ] **Step 5: 테스트·타입 검사를 실행한다**
+- [x] **Step 5: 테스트·타입 검사를 실행한다**
 
 Run: `npm test -- stringIdRules.test.ts`
 Expected: PASS.
@@ -280,7 +280,7 @@ Expected: PASS.
 - Produces: `planJsonChanges(decisions, files): JsonChangePlan`
 - Produces: `applyJsonChanges(plan, backupRoot): Promise<JsonApplyResult>`
 
-- [ ] **Step 1: 재사용 무변경·신규 추가 테스트를 작성한다**
+- [x] **Step 1: 재사용 무변경·신규 추가 테스트를 작성한다**
 
 ```ts
 expect(planJsonChanges([reuseDecision], files).files).toHaveLength(0);
@@ -290,15 +290,15 @@ expect(planJsonChanges([newClanDecision], files).files[0].fileName).toBe('ui_cla
 Run: `npm test -- jsonRepository.test.ts`
 Expected: 함수가 없어 FAIL.
 
-- [ ] **Step 2: 변경 계획과 결정적 JSON 직렬화를 구현한다**
+- [x] **Step 2: 변경 계획과 결정적 JSON 직렬화를 구현한다**
 
 기존 키 순서를 보존하고 신규 키를 String ID 오름차순으로 추가한다. 대상 파일이 없거나 ID 형식이 유효하지 않으면 해당 항목을 issue로 분리한다.
 
-- [ ] **Step 3: 롤백 테스트를 작성하고 구현한다**
+- [x] **Step 3: 롤백 테스트를 작성하고 구현한다**
 
 모든 새 내용을 임시 파일로 쓰고 JSON 재파싱 후 원본을 백업한다. 교체 실패를 주입한 테스트에서 앞서 교체한 파일이 백업으로 복구되는지 확인한다.
 
-- [ ] **Step 4: 테스트·타입 검사를 실행한다**
+- [x] **Step 4: 테스트·타입 검사를 실행한다**
 
 Run: `npm test -- jsonRepository.test.ts`
 Expected: PASS.
