@@ -356,7 +356,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 7: 커밋한다**
+- [x] **Step 7: 커밋한다**
 
 ```text
 ✨Feat(Many): L10N 작업 흐름과 IPC 연결 추가
@@ -399,7 +399,7 @@ Expected: PASS.
 Run: `npm run build`
 Expected: 세 webpack target 모두 성공.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```text
 💄Design(Many): String ID 생성 전용 화면 추가
@@ -415,7 +415,7 @@ Expected: 세 webpack target 모두 성공.
 - Consumes: 완성된 앱과 `.env.example`
 - Produces: 설치형·portable Windows PoC artifact
 
-- [ ] **Step 1: 전체 자동 검증을 실행한다**
+- [x] **Step 1: 전체 자동 검증을 실행한다**
 
 Run: `npm test`
 Expected: 모든 테스트 PASS.
@@ -426,20 +426,20 @@ Expected: PASS.
 Run: `npm run build`
 Expected: PASS.
 
-- [ ] **Step 2: 비파괴 smoke test를 수행한다**
+- [x] **Step 2: 비파괴 smoke test를 수행한다**
 
 개발 `.env`가 준비된 경우 Figma 예시의 `%stringTag` 7개와 `메인_외형 챌린지 선택` 프레임을 읽는다. Confluence 쓰기는 지정된 테스트 페이지가 없으므로 fixture storage에 대해 생성 payload와 preview를 검증한다. GDD는 임시 fixture 폴더를 사용한다.
 
-- [ ] **Step 3: 사용법과 PoC 제한을 문서화한다**
+- [x] **Step 3: 사용법과 PoC 제한을 문서화한다**
 
 README와 패치 노트에 `.env` 위치, 필요한 키, 위키/Figma 입력, 영문 검수 대기, 최종 확정, Git 미지원, 백업 경로를 기록한다.
 
-- [ ] **Step 4: Windows artifact를 생성한다**
+- [x] **Step 4: Windows artifact를 생성한다**
 
 Run: `npm run dist:all`
 Expected: `dist/String-Finder-<version>-x64.exe`와 `dist/String-Finder-<version>-portable.exe`가 생성되고 설치 파일 내부에 `.env`가 없다.
 
-- [ ] **Step 5: artifact를 확인한다**
+- [x] **Step 5: artifact를 확인한다**
 
 설치형과 portable을 각각 실행해 검색 화면, String ID 탭, 설정 파일 열기, 상태 badge, 앱 재실행을 확인한다. `dist` 압축 해제 목록에서 `.env`가 없고 `.env.example`만 있는지 확인한다.
 

@@ -53,6 +53,51 @@ string 작업 시 다음과 같은 불편을 해소하기 위해 개발했습니
 - **표준 번역**: AI가 예측한 기본 번역을 확인합니다.
 - **축약 번역**: '축약 번역' 탭을 선택하면, 표시 너비가 긴 상위 10개 언어에 대해 축약된 번역을 제안받을 수 있습니다.
 
+### String ID 생성 PoC
+
+`String ID 생성` 탭에서는 Figma의 스트링 태그와 Confluence 표를 비교해 String ID 후보를 작성하고, 검토가 끝난 항목을 로컬 GDD JSON에 반영할 수 있습니다.
+
+#### 연결 설정
+
+처음 사용할 때 `설정 파일 열기`를 눌러 다음 값을 입력합니다. 토큰 값은 앱 화면·로그·설치 파일에 포함되지 않습니다.
+
+- 설치 앱: `%APPDATA%\String-Finder\.env`
+- 개발 실행: 프로젝트 루트의 `.env`
+- 필수 값: `FIGMA_API_TOKEN`, `CONFLUENCE_BASE_URL`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`, `OPENAI_API_KEY`
+- 선택 값: `OPENAI_MODEL` (기본값 `gpt-4o-mini`)
+
+`.env` 예시는 다음과 같습니다.
+
+```dotenv
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+FIGMA_API_TOKEN=
+CONFLUENCE_BASE_URL=https://krafton.atlassian.net
+CONFLUENCE_EMAIL=
+CONFLUENCE_API_TOKEN=
+```
+
+#### 사용 순서
+
+1. ⚙️ 경로 설정에서 최신 `game-design-data/localization/ui` 폴더를 지정합니다.
+2. 위키 페이지 URL과 Figma URL을 입력합니다. Figma URL이 여러 개면 한 줄에 하나씩 입력합니다.
+3. 위키 또는 Figma 제목의 `vNNMM`을 바탕으로 PC Release Date가 자동 제안됩니다. 두 버전이 다르면 위키를 우선합니다. 직접 수정한 날짜는 다시 덮어쓰지 않습니다.
+4. `String ID 생성`을 누릅니다.
+   - 위키에 국문·영문 표가 없으면 Figma 최상위 대상 프레임을 PNG로 첨부하고 `구분자 | 이미지 | 국문 | 영문 | String ID` 표를 페이지 아래에 만듭니다. 영문 검수를 마친 뒤 같은 버튼을 다시 누릅니다.
+   - 표가 있으면 `String ID` 컬럼만 추가하거나 갱신합니다. Figma 태그와 위키 행이 다른 항목은 확인 필요로 남기고 정상 항목은 계속 처리합니다.
+5. 위키의 후보를 확인하고 필요한 값을 직접 편집한 뒤, 앱에서 `String ID 생성`을 다시 눌러 충돌과 COMMON 우선 규칙을 재검사할 수 있습니다.
+6. `최종 확정`을 누르면 최신 위키를 한 번 더 읽고 신규 항목만 `input/ui_*.json`에 반영합니다.
+
+Figma 대상은 레이어명에 `%stringTag` payload가 있는 `스트링 태그` 레이어입니다. payload가 가리키는 노드에서 국문을 읽으며 별도의 텍스트 레이어 접두어는 사용하지 않습니다.
+
+#### 안전 범위
+
+- 동일한 기존 키를 재사용할 때는 COMMON 여부와 관계없이 JSON 항목을 추가하지 않습니다.
+- `ui_dev.json`은 여러 피처 중복 계산에 포함하고 `ui_common.json`만 제외합니다.
+- JSON 반영 전 원본은 `%APPDATA%\String-Finder\backups\<작업 시각>`에 백업됩니다. 여러 파일 중 하나라도 교체에 실패하면 앞서 바꾼 파일도 복원합니다.
+- `작업 취소`는 Figma·위키·후보 생성 단계에서 사용할 수 있습니다. JSON 파일 교체가 시작되면 데이터 일관성을 위해 비활성화됩니다.
+- 이 PoC는 Git pull, commit, push를 실행하지 않습니다. 사용자가 준비한 로컬 GDD만 읽고 최종 확정 때 JSON을 수정합니다.
+
 ### 기타 기능
 
 - **패치 노트**: 🗒️ 버튼을 눌러 업데이트 내역을 확인합니다.
