@@ -83,7 +83,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```text
 🔨Env(Many): L10N PoC 환경설정과 테스트 기반 추가
@@ -105,7 +105,7 @@ Expected: PASS.
 - Produces: `selectExportFrame(tagNodeId, targetNodeId, index): FigmaNode | null`
 - Produces: `FigmaClient.scan(urls, signal): Promise<FigmaScanResult>` and `FigmaClient.exportFrame(fileKey, frameId, outputPath, signal): Promise<void>`
 
-- [ ] **Step 1: 실패하는 parser 테스트를 작성한다**
+- [x] **Step 1: 실패하는 parser 테스트를 작성한다**
 
 ```ts
 const parsed = parseStringTagName(
@@ -118,11 +118,11 @@ expect(parseStringTagName('일반 텍스트')).toBeNull();
 Run: `npm test -- figmaTag.test.ts`
 Expected: parser가 없어 FAIL.
 
-- [ ] **Step 2: URL·payload parser를 구현한다**
+- [x] **Step 2: URL·payload parser를 구현한다**
 
 Figma URL의 `/design/<fileKey>/`를 읽고 `node-id=1896-82522`를 `1896:82522`로 변환한다. payload는 정확히 5개 필드로 검증하며 locator의 세미콜론은 유지한다.
 
-- [ ] **Step 3: 실패하는 프레임 선택 테스트를 작성한다**
+- [x] **Step 3: 실패하는 프레임 선택 테스트를 작성한다**
 
 fixture는 `스펙 페이지` 아래에 태그와 `메인_외형 챌린지 선택` FRAME을 형제로 두고, FRAME 안에 타겟 TEXT를 둔다.
 
@@ -134,15 +134,15 @@ expect(selectExportFrame('tag:A', 'target:A', buildNodeIndex(fixture))?.name)
 Run: `npm test -- figmaTag.test.ts`
 Expected: 프레임 선택이 없어 FAIL.
 
-- [ ] **Step 4: 노드 인덱스·타겟 텍스트·프레임 선택을 구현한다**
+- [x] **Step 4: 노드 인덱스·타겟 텍스트·프레임 선택을 구현한다**
 
 타겟은 포함하지만 태그는 포함하지 않는 가장 바깥 FRAME을 선택한다. 같은 프레임의 태그는 그룹화하고 구분자를 자연 정렬한다. 직접 TEXT는 `characters`, 인스턴스는 locator로 받은 서브트리의 유효 TEXT 또는 `Text` component property를 사용한다.
 
-- [ ] **Step 5: Figma REST client를 구현한다**
+- [x] **Step 5: Figma REST client를 구현한다**
 
 `GET /v1/files/:key/nodes?ids=...`와 `GET /v1/images/:key?ids=...&format=png&scale=1`을 사용한다. 모든 요청에 `X-Figma-Token`을 넣고 `AbortSignal`을 전달한다. 렌더 URL 응답은 임시 PNG 파일로 저장한다.
 
-- [ ] **Step 6: 테스트와 타입 검사를 실행한다**
+- [x] **Step 6: 테스트와 타입 검사를 실행한다**
 
 Run: `npm test -- figmaTag.test.ts`
 Expected: PASS.
@@ -173,7 +173,7 @@ Expected: PASS.
 - Produces: `ConfluenceClient.getPage`, `updatePage`, `uploadAttachment`, `getUpdateChildren`
 - Produces: `extractVersionCode(title): string | null`, `resolveReleaseDate(input): Promise<ReleaseDateSuggestion>`
 
-- [ ] **Step 1: 실패하는 표 감지·생성 테스트를 작성한다**
+- [x] **Step 1: 실패하는 표 감지·생성 테스트를 작성한다**
 
 ```ts
 expect(findL10nTable('<table><tr><th>국문</th><th>영문</th></tr></table>')).not.toBeNull();
@@ -184,19 +184,19 @@ expect(createL10nTable('<p>기존 본문</p>', groups)).toContain('ri:filename="
 Run: `npm test -- confluenceTable.test.ts`
 Expected: 함수가 없어 FAIL.
 
-- [ ] **Step 2: Cheerio 기반 표 parser와 writer를 구현한다**
+- [x] **Step 2: Cheerio 기반 표 parser와 writer를 구현한다**
 
 헤더 별칭을 인식하고 기존 표에는 `String ID` 컬럼만 추가한다. 새 표는 `구분자 | 이미지 | 국문 | 영문 | String ID` 순서이며 이미지 셀에 `rowspan`과 `ac:image/ri:attachment`를 사용한다. 기존 본문 뒤에 추가한다.
 
-- [ ] **Step 3: 부분 비교 테스트를 추가하고 구현한다**
+- [x] **Step 3: 부분 비교 테스트를 추가하고 구현한다**
 
 정상 행은 처리 목록, Figma 전용은 `WIKI_ROW_MISSING`, 위키 전용은 `FIGMA_TAG_MISSING`, 국문 차이는 `KOREAN_MISMATCH` issue로 분리한다. 오류 행이 있어도 정상 행 배열은 유지한다.
 
-- [ ] **Step 4: Confluence client를 구현한다**
+- [x] **Step 4: Confluence client를 구현한다**
 
 Basic 인증을 사용해 v2 page storage를 읽고 version+1로 갱신한다. 첨부는 v1 attachment API에서 결정적 파일명을 조회해 신규 업로드 또는 새 버전 업로드한다. PUT 직전에 페이지 버전을 다시 읽어 충돌을 검사한다.
 
-- [ ] **Step 5: ReleaseDate 실패 테스트와 구현을 추가한다**
+- [x] **Step 5: ReleaseDate 실패 테스트와 구현을 추가한다**
 
 ```ts
 expect(extractVersionCode('[v2607-10] 메시지')).toBe('v2607');
@@ -206,7 +206,7 @@ expect(selectVersionSource(undefined, 'v2608').version).toBe('v2608');
 
 업데이트 루트 `134241634`의 연도 하위 문서를 읽고 버전 행의 PC 날짜를 찾는다. 자동값과 출처, 위키·Figma 불일치 경고를 반환한다.
 
-- [ ] **Step 6: 테스트·타입 검사를 실행한다**
+- [x] **Step 6: 테스트·타입 검사를 실행한다**
 
 Run: `npm test -- confluenceTable.test.ts releaseDate.test.ts`
 Expected: PASS.

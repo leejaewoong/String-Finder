@@ -1,0 +1,42 @@
+import { describe, expect, it } from 'vitest';
+import {
+  extractPcReleaseDate,
+  extractVersionCode,
+  selectVersionSource,
+} from '../releaseDate';
+
+describe('extractVersionCode', () => {
+  it('normalizes a version title with a sub-version suffix', () => {
+    expect(extractVersionCode('[v2607-10] 메시지')).toBe('v2607');
+    expect(extractVersionCode('v2612 외형 챌린지')).toBe('v2612');
+  });
+});
+
+describe('selectVersionSource', () => {
+  it('prefers the wiki version and warns when Figma differs', () => {
+    expect(selectVersionSource('v2607', 'v2608')).toEqual({
+      version: 'v2607',
+      source: 'wiki',
+      warning: '위키(v2607)와 Figma(v2608)의 버전이 달라 위키를 기준으로 사용합니다.',
+    });
+  });
+
+  it('uses Figma when the wiki title has no version', () => {
+    expect(selectVersionSource(undefined, 'v2608')).toEqual({
+      version: 'v2608',
+      source: 'figma',
+    });
+  });
+});
+
+describe('extractPcReleaseDate', () => {
+  it('returns the PC date from the row matching the version', () => {
+    const storage = '<table><tbody>'
+      + '<tr><th>업데이트</th><th>플랫폼</th><th>업데이트 일자</th></tr>'
+      + '<tr><td>v2607</td><td>Console</td><td>2026-07-16</td></tr>'
+      + '<tr><td>v2607</td><td>PC</td><td>2026-07-09</td></tr>'
+      + '</tbody></table>';
+
+    expect(extractPcReleaseDate(storage, 'v2607')).toBe('2026-07-09');
+  });
+});
