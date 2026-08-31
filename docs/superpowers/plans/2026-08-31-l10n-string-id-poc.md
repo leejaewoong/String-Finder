@@ -443,7 +443,7 @@ Expected: `dist/String-Finder-<version>-x64.exe`와 `dist/String-Finder-<version
 
 설치형과 portable을 각각 실행해 검색 화면, String ID 탭, 설정 파일 열기, 상태 badge, 앱 재실행을 확인한다. `dist` 압축 해제 목록에서 `.env`가 없고 `.env.example`만 있는지 확인한다.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```text
 ✏️Docs(README.md, PATCH_NOTES.md): L10N PoC 사용법과 제한사항 추가
