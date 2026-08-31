@@ -263,7 +263,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```text
 ✨Feat(l10n/stringIdRules.ts, l10n/l10nOpenAiClient.ts, __tests__/stringIdRules.test.ts): String ID 결정 규칙 추가
@@ -306,7 +306,7 @@ Expected: PASS.
 Run: `npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: 커밋한다**
+- [x] **Step 5: 커밋한다**
 
 ```text
 ✨Feat(l10n/jsonRepository.ts, __tests__/jsonRepository.test.ts): JSON 변경과 롤백 추가
@@ -328,27 +328,27 @@ Expected: PASS.
 - Produces IPC: `l10n:get-config`, `l10n:open-env`, `l10n:suggest-release-date`, `l10n:generate`, `l10n:finalize`, `l10n:cancel`, `l10n:get-state`
 - Produces event: `l10n:state-changed`
 
-- [ ] **Step 1: 표 없음→영문 대기 상태 테스트를 작성한다**
+- [x] **Step 1: 표 없음→영문 대기 상태 테스트를 작성한다**
 
 mock client로 표가 없는 페이지를 반환하고 `generate` 후 상태가 `english-review`인지, 표 업데이트가 한 번인지 확인한다.
 
-- [ ] **Step 2: 기존 표→부분 처리→검토 대기 테스트를 작성한다**
+- [x] **Step 2: 기존 표→부분 처리→검토 대기 테스트를 작성한다**
 
 정상 2행과 불일치 1행을 주고 정상 행 ID만 위키에 쓰며 상태 배지에 `attentionCount: 1`이 남는지 확인한다.
 
-- [ ] **Step 3: 반복 생성·취소·최종 확정 테스트를 작성한다**
+- [x] **Step 3: 반복 생성·취소·최종 확정 테스트를 작성한다**
 
 반복 생성은 최신 위키 값을 다시 읽고, 취소는 AbortController를 호출하며, 최종 확정은 최신 위키 검증 후 JSON service를 한 번 호출해야 한다.
 
-- [ ] **Step 4: 오케스트레이터를 최소 구현해 테스트를 통과시킨다**
+- [x] **Step 4: 오케스트레이터를 최소 구현해 테스트를 통과시킨다**
 
 위키 쓰기 전 모든 표·ID 내용을 메모리에서 완성한다. 항목 issue와 단계 중단 error를 구분한다. 상태 변경 때 구독자에게 immutable snapshot을 보낸다.
 
-- [ ] **Step 5: IPC와 preload 타입을 연결한다**
+- [x] **Step 5: IPC와 preload 타입을 연결한다**
 
 preload 이벤트 등록 함수는 cleanup 함수를 반환해 React unmount 시 listener를 제거한다. main은 BrowserWindow에 상태 snapshot만 전송한다.
 
-- [ ] **Step 6: 테스트·타입 검사를 실행한다**
+- [x] **Step 6: 테스트·타입 검사를 실행한다**
 
 Run: `npm test -- l10nOrchestrator.test.ts`
 Expected: PASS.
@@ -375,23 +375,23 @@ Expected: PASS.
 - Consumes: `window.electron` L10N IPC와 `L10nTaskState`
 - Produces: `AppView = 'search' | 'string-id'`
 
-- [ ] **Step 1: 헤더와 탭 구조를 구현한다**
+- [x] **Step 1: 헤더와 탭 구조를 구현한다**
 
 Header의 하단 border를 제거한다. 그 아래 `문자열 검색`, `String ID 생성` 탭을 추가하고 String ID 탭에 상태·확인 필요 수 badge를 표시한다.
 
-- [ ] **Step 2: 입력과 ReleaseDate 자동 제안을 구현한다**
+- [x] **Step 2: 입력과 ReleaseDate 자동 제안을 구현한다**
 
 위키 URL, 줄 단위 Figma URL들, ReleaseDate를 표시한다. 400ms debounce 후 날짜 제안을 요청한다. 사용자가 날짜를 수정한 이후에는 `releaseDateSource: 'manual'`로 두어 자동값으로 덮어쓰지 않는다.
 
-- [ ] **Step 3: 작업 버튼과 상태 패널을 구현한다**
+- [x] **Step 3: 작업 버튼과 상태 패널을 구현한다**
 
 상단에 `작업 취소`, `String ID 생성`, `최종 확정`을 배치한다. RELEASE DATE 아래에는 취소·재생성 안내를 두지 않는다. 우측 패널은 단계, 통계, 마지막 생성 시각, 펼침 가능한 issue 목록을 표시한다.
 
-- [ ] **Step 4: 설정 누락 UI를 구현한다**
+- [x] **Step 4: 설정 누락 UI를 구현한다**
 
 필수 키가 없으면 변수명과 `.env` 경로를 표시하고 `설정 파일 열기` 버튼을 제공한다. 토큰 값은 renderer로 보내지 않는다.
 
-- [ ] **Step 5: 타입 검사와 production build를 실행한다**
+- [x] **Step 5: 타입 검사와 production build를 실행한다**
 
 Run: `npm run typecheck`
 Expected: PASS.

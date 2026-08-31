@@ -8,6 +8,15 @@ import { DetailView } from './components/DetailView';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { PredictedTranslations } from './components/PredictedTranslations';
 import { SearchResult, SynonymSearchResult } from './types';
+import { L10nTaskState } from '../shared/l10nTypes';
+import { AppTabs, AppView } from './components/AppTabs';
+import { StringIdGenerator } from './components/StringIdGenerator';
+
+const initialL10nState: L10nTaskState = {
+  stage: 'idle', label: '대기 중', attentionCount: 0, issues: [],
+  stats: { total: 0, matched: 0, reused: 0, created: 0, common: 0, renumbered: 0, skipped: 0 },
+  canGenerate: true, canFinalize: false, canCancel: false,
+};
 
 const App: React.FC = () => {
   const [selectedLanguage, setSelectedLanguage] = useState('ko');
@@ -27,9 +36,16 @@ const App: React.FC = () => {
   const [selectedSearchMode, setSelectedSearchMode] = useState<SearchMode>('gdd'); // SearchBar에서 선택된 모드
   const [activeSearchMode, setActiveSearchMode] = useState<SearchMode>('gdd'); // 실제 검색이 수행된 모드
   const [predictedTranslations, setPredictedTranslations] = useState<Array<{language: string, value: string}>>([]);
+  const [activeView, setActiveView] = useState<AppView>('search');
+  const [l10nState, setL10nState] = useState<L10nTaskState>(initialL10nState);
 
   useEffect(() => {
     loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    window.electron.getL10nState().then(setL10nState).catch(() => undefined);
+    return window.electron.onL10nStateChanged(setL10nState);
   }, []);
 
   const loadInitialData = async () => {
@@ -222,7 +238,11 @@ const App: React.FC = () => {
         onPathSetting={handlePathSetting}
         onGitPull={handleGitPull}
       />
+      <AppTabs activeView={activeView} l10nState={l10nState} onChange={setActiveView} />
 
+      {activeView === 'string-id' ? (
+        <StringIdGenerator taskState={l10nState} onStateChange={setL10nState} />
+      ) : <>
       <SearchBar
         onSearch={handleSearch}
         disabled={isSearchDisabled}
@@ -265,6 +285,7 @@ const App: React.FC = () => {
       </div>
 
       <StatusBar lastUpdateTime={lastUpdateTime} />
+      </>}
 
       <PathSettingModal
         isOpen={isPathModalOpen}

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { L10nInput, L10nTaskState } from '../shared/l10nTypes';
 
 // Main Process 로그를 DevTools 콘솔로 전달
 ipcRenderer.on('main-process-log', (_, logData: { level: string; message: string; args: any[]; timestamp: string }) => {
@@ -114,4 +115,31 @@ contextBridge.exposeInMainWorld('electron', {
 
   openLogFile: () =>
     ipcRenderer.invoke('open-log-file'),
+
+  getL10nConfig: () =>
+    ipcRenderer.invoke('l10n:get-config'),
+
+  openL10nEnv: () =>
+    ipcRenderer.invoke('l10n:open-env'),
+
+  suggestL10nReleaseDate: (wikiUrl: string, figmaUrls: string[]) =>
+    ipcRenderer.invoke('l10n:suggest-release-date', wikiUrl, figmaUrls),
+
+  generateL10nStringIds: (input: L10nInput) =>
+    ipcRenderer.invoke('l10n:generate', input),
+
+  finalizeL10nStringIds: (input: L10nInput) =>
+    ipcRenderer.invoke('l10n:finalize', input),
+
+  cancelL10nTask: () =>
+    ipcRenderer.invoke('l10n:cancel'),
+
+  getL10nState: () =>
+    ipcRenderer.invoke('l10n:get-state'),
+
+  onL10nStateChanged: (callback: (state: L10nTaskState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: L10nTaskState) => callback(state);
+    ipcRenderer.on('l10n:state-changed', listener);
+    return () => ipcRenderer.removeListener('l10n:state-changed', listener);
+  },
 });

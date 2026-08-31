@@ -22,7 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isPatchNotesOpen, setIsPatchNotesOpen] = useState(false);
   return (
-    <div className="flex items-center justify-between p-4 border-b border-figma-border">
+    <div className="flex items-center justify-between p-4">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">String-Finder</h1>              
       </div>
