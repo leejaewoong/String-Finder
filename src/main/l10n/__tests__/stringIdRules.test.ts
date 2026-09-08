@@ -138,7 +138,7 @@ describe('decideStringIds', () => {
     });
   });
 
-  it('does not reuse matching text from prefixes other than COMMON and XB', () => {
+  it('reuses a Korean-only match from the selected prefix but not an English match', () => {
     const index = buildStringIndex(files({
       'ui_common.json': {
         'CLAN:OTHER_BUTTON_0': { Text: 'PLAY', ReleaseDate: '2027-01-01' },
@@ -164,8 +164,49 @@ describe('decideStringIds', () => {
       action: 'create',
     });
     expect(koreanOnlyMatch).toMatchObject({
-      stringId: '',
-      action: 'skip',
+      stringId: 'CLAN:OTHER_BUTTON_0',
+      action: 'reuse',
+    });
+  });
+
+  it('treats BODY and FLOAT as compatible when reusing the latest Korean key from the selected prefix', () => {
+    const index = buildStringIndex(files({
+      'ui_clan.json': {
+        'CLAN:OLD_BODY_0': { Text: 'OLD PREVIEW', ReleaseDate: '2025-01-01' },
+        'CLAN:NEW_FLOAT_0': { Text: 'NEW PREVIEW', ReleaseDate: '2026-01-01' },
+      },
+    }), new Map([
+      ['CLAN:OLD_BODY_0', '미리보기'],
+      ['CLAN:NEW_FLOAT_0', '미리보기'],
+    ]));
+
+    expect(decideStringIds(
+      [row({ korean: '미리보기', english: '' })],
+      [inference({ type: 'BODY' })],
+      index,
+      '2026-12-03',
+    )[0]).toMatchObject({
+      stringId: 'CLAN:NEW_FLOAT_0',
+      action: 'reuse',
+      targetFile: 'ui_clan.json',
+    });
+  });
+
+  it('treats BODY and FLOAT as compatible when reusing a COMMON key by English', () => {
+    const index = buildStringIndex(files({
+      'ui_common.json': {
+        'COMMON:MAIN_FLOAT_0': { Text: 'PLAY', ReleaseDate: '2026-01-01' },
+      },
+    }));
+
+    expect(decideStringIds(
+      [row()],
+      [inference({ type: 'BODY' })],
+      index,
+      '2026-12-03',
+    )[0]).toMatchObject({
+      stringId: 'COMMON:MAIN_FLOAT_0',
+      action: 'reuse',
     });
   });
 
@@ -230,6 +271,32 @@ describe('decideStringIds', () => {
       action: 'create',
       targetFile: 'ui_common.json',
       reason: '동일한 국문과 Type이 다른 두 피처 파일에 있어 COMMON 키를 생성합니다.',
+    });
+  });
+
+  it('counts BODY and FLOAT together when promoting a Korean-only string to COMMON', () => {
+    const index = buildStringIndex(files({
+      'ui_bridge.json': {
+        'BRIDGE:LAB_BODY_0': { Text: 'EQUIP', ReleaseDate: '2025-01-01' },
+      },
+      'ui_store.json': {
+        'STORE:LAB_FLOAT_0': { Text: 'APPLY', ReleaseDate: '2025-01-01' },
+      },
+      'ui_clan.json': {},
+    }), new Map([
+      ['BRIDGE:LAB_BODY_0', '장착'],
+      ['STORE:LAB_FLOAT_0', '장착'],
+    ]));
+
+    expect(decideStringIds(
+      [row({ korean: '장착', english: '' })],
+      [inference({ type: 'BODY' })],
+      index,
+      '2026-12-03',
+    )[0]).toMatchObject({
+      stringId: 'COMMON:MAIN_BODY_0',
+      action: 'create',
+      targetFile: 'ui_common.json',
     });
   });
 
@@ -406,6 +473,13 @@ describe('decideStringIds', () => {
         rowKey: 'row-1',
       }),
     ]);
+  });
+
+  it('does not report BODY and FLOAT as a String ID type mismatch', () => {
+    expect(findStringIdTypeIssues(
+      [row({ stringId: 'CLAN:MAIN_BODY_7' })],
+      [inference({ type: 'FLOAT' })],
+    )).toEqual([]);
   });
 
   it('reserves IDs from Figma-tag-missing rows when allocating a new number', () => {

@@ -120,8 +120,13 @@ const HEADER_ALIASES = {
   note: ['비고', 'note', 'remarks', 'comment'],
 } as const;
 
-export const EXISTING_STRING_ID_NOTE = '기존 String ID 사용';
+export const EXISTING_STRING_ID_NOTE = '기존 String ID 활용';
+const LEGACY_EXISTING_STRING_ID_NOTE = '기존 String ID 사용';
 export const L10N_SYNC_PROPERTY_KEY = 'string-finder-l10n-sync';
+
+function isExistingStringIdNote(value: string): boolean {
+  return value === EXISTING_STRING_ID_NOTE || value === LEGACY_EXISTING_STRING_ID_NOTE;
+}
 
 function normalizeHeader(value: string): string {
   return value.trim().replace(/[\s-]+/g, '').toLowerCase();
@@ -393,7 +398,7 @@ export function applyStringIdUpdates(storage: string, updates: StringIdUpdate[])
     const noteCell = table.columns.note === undefined ? undefined : grid[table.columns.note];
     if (noteCell && update.note !== undefined) {
       const currentNote = normalizeText(parsed.$(noteCell.element).text());
-      if (update.note || currentNote === EXISTING_STRING_ID_NOTE) {
+      if (update.note || isExistingStringIdNote(currentNote)) {
         parsed.$(noteCell.element).text(update.note);
       }
     }
@@ -599,7 +604,7 @@ export function applyFigmaSourceUpdates(
       setCellText(parsed.$, table, row, table.columns.delimiter, located.tag.delimiter);
       setCellText(parsed.$, table, row, table.columns.korean, located.tag.korean);
       if (koreanChanged) {
-        if (row.note === EXISTING_STRING_ID_NOTE) {
+        if (isExistingStringIdNote(row.note)) {
           setCellText(parsed.$, table, row, table.columns.stringId, '');
           setCellText(parsed.$, table, row, table.columns.note, '');
         } else {

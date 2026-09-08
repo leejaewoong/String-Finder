@@ -155,7 +155,7 @@ describe('L10nOrchestrator', () => {
     expect(deps.currentMetadata()?.rows).toHaveLength(2);
     expect(deps.currentStorage()).toContain('<th>String ID</th>');
     expect(deps.currentStorage()).toContain('<td>COMMON:LEGACY_TITLE</td>');
-    expect(deps.currentStorage()).toContain('<td>기존 String ID 사용</td>');
+    expect(deps.currentStorage()).toContain('<td>기존 String ID 활용</td>');
     expect(deps.openAi.infer).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({

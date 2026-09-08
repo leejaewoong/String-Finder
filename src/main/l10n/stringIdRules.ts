@@ -119,6 +119,21 @@ function comparePreferredRecord(a: ExistingStringRecord, b: ExistingStringRecord
   return b.releaseDate.localeCompare(a.releaseDate) || a.stringId.localeCompare(b.stringId);
 }
 
+function areTypesCompatible(a: StringIdType, b: StringIdType): boolean {
+  return a === b || ((a === 'BODY' || a === 'FLOAT') && (b === 'BODY' || b === 'FLOAT'));
+}
+
+function findCompatibleMatches(
+  recordsByTextType: ReadonlyMap<string, ExistingStringRecord[]>,
+  text: string,
+  type: StringIdType,
+): ExistingStringRecord[] {
+  return STRING_ID_TYPES
+    .filter((candidate) => areTypesCompatible(type, candidate))
+    .flatMap((candidate) => recordsByTextType.get(textTypeKey(text, candidate)) ?? [])
+    .sort(comparePreferredRecord);
+}
+
 function findReusableMatch(matches: ExistingStringRecord[]): ExistingStringRecord | undefined {
   for (const feature of REUSABLE_FEATURES) {
     const match = matches.find((record) => record.feature === feature);
@@ -279,7 +294,7 @@ export function decideStringIds(
       };
     }
     const matches = english
-      ? index.byTextType.get(textTypeKey(english, effectiveType)) ?? []
+      ? findCompatibleMatches(index.byTextType, english, effectiveType)
       : [];
     const reusableEnglishMatch = findReusableMatch(matches);
     if (reusableEnglishMatch) {
@@ -298,9 +313,10 @@ export function decideStringIds(
 
     if (!english) {
       const koreanMatches = korean
-        ? index.byKoreanType.get(textTypeKey(korean, effectiveType)) ?? []
+        ? findCompatibleMatches(index.byKoreanType, korean, effectiveType)
         : [];
-      const reusableKoreanMatch = findReusableMatch(koreanMatches);
+      const reusableKoreanMatch = findReusableMatch(koreanMatches)
+        ?? koreanMatches.find((record) => record.feature === feature);
       if (reusableKoreanMatch) {
         return {
           rowKey: row.rowKey,
@@ -418,7 +434,7 @@ export function findStringIdTypeIssues(
   return rows.flatMap((row): L10nIssue[] => {
     const parsed = parseStringId(row.stringId);
     const inferred = inferenceByRow.get(row.rowKey);
-    if (!parsed || !inferred || parsed.type === inferred.type) return [];
+    if (!parsed || !inferred || areTypesCompatible(parsed.type, inferred.type)) return [];
     return [{
       code: 'STRING_ID_TYPE_MISMATCH',
       rowKey: row.rowKey,
