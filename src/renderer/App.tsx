@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { SearchBar, SearchMode } from './components/SearchBar';
 import { SearchResults } from './components/SearchResults';
@@ -8,14 +8,22 @@ import { DetailView } from './components/DetailView';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { PredictedTranslations } from './components/PredictedTranslations';
 import { SearchResult, SynonymSearchResult } from './types';
-import { L10nTaskState } from '../shared/l10nTypes';
+import { L10nDraft, L10nTaskState } from '../shared/l10nTypes';
 import { AppTabs, AppView } from './components/AppTabs';
 import { StringIdGenerator } from './components/StringIdGenerator';
 
 const initialL10nState: L10nTaskState = {
-  stage: 'idle', label: '대기 중', attentionCount: 0, issues: [],
+  stage: 'idle', label: '', attentionCount: 0, issues: [],
   stats: { total: 0, matched: 0, reused: 0, created: 0, common: 0, renumbered: 0, skipped: 0 },
   canGenerate: true, canFinalize: false, canCancel: false,
+};
+
+const initialL10nDraft: L10nDraft = {
+  wikiUrl: '',
+  figmaText: '',
+  featurePrefix: '',
+  releaseDate: '',
+  releaseDateSource: 'auto',
 };
 
 const App: React.FC = () => {
@@ -38,15 +46,42 @@ const App: React.FC = () => {
   const [predictedTranslations, setPredictedTranslations] = useState<Array<{language: string, value: string}>>([]);
   const [activeView, setActiveView] = useState<AppView>('search');
   const [l10nState, setL10nState] = useState<L10nTaskState>(initialL10nState);
+  const [l10nDraft, setL10nDraft] = useState<L10nDraft>(initialL10nDraft);
+  const [l10nDraftLoaded, setL10nDraftLoaded] = useState(false);
+
+  const handleL10nStateChange = useCallback((nextState: L10nTaskState) => {
+    setL10nState(nextState);
+    if (nextState.taskTitle) {
+      setL10nDraft((current) => current.taskTitle === nextState.taskTitle
+        ? current
+        : { ...current, taskTitle: nextState.taskTitle });
+    }
+  }, []);
+
+  const handleL10nDraftChange = useCallback((changes: Partial<L10nDraft>) => {
+    setL10nDraft((current) => ({ ...current, ...changes }));
+  }, []);
 
   useEffect(() => {
     loadInitialData();
   }, []);
 
   useEffect(() => {
-    window.electron.getL10nState().then(setL10nState).catch(() => undefined);
-    return window.electron.onL10nStateChanged(setL10nState);
+    window.electron.getL10nState().then(handleL10nStateChange).catch(() => undefined);
+    return window.electron.onL10nStateChanged(handleL10nStateChange);
+  }, [handleL10nStateChange]);
+
+  useEffect(() => {
+    window.electron.getL10nDraft()
+      .then(setL10nDraft)
+      .catch(() => undefined)
+      .finally(() => setL10nDraftLoaded(true));
   }, []);
+
+  useEffect(() => {
+    if (!l10nDraftLoaded) return;
+    window.electron.saveL10nDraft(l10nDraft).catch(() => undefined);
+  }, [l10nDraft, l10nDraftLoaded]);
 
   const loadInitialData = async () => {
     const langs = await window.electron.getLanguages();
@@ -178,6 +213,17 @@ const App: React.FC = () => {
     return await window.electron.browseFolderPath();
   };
 
+  const handleL10nCancel = async () => {
+    const nextState = await window.electron.cancelL10nTask();
+    handleL10nStateChange(nextState);
+    if (nextState.stage === 'idle') setL10nDraft(initialL10nDraft);
+  };
+
+  const handleL10nComplete = async () => {
+    handleL10nStateChange(await window.electron.resetL10nTask());
+    setL10nDraft(initialL10nDraft);
+  };
+
   const handleCopy = async (text: string) => {
     await window.electron.copyToClipboard(text);
   };
@@ -241,7 +287,15 @@ const App: React.FC = () => {
       <AppTabs activeView={activeView} l10nState={l10nState} onChange={setActiveView} />
 
       {activeView === 'string-id' ? (
-        <StringIdGenerator taskState={l10nState} onStateChange={setL10nState} />
+        <StringIdGenerator
+          taskState={l10nState}
+          draft={l10nDraft}
+          onDraftChange={handleL10nDraftChange}
+          onStateChange={handleL10nStateChange}
+          onCancel={handleL10nCancel}
+          onComplete={handleL10nComplete}
+          lastUpdateTime={lastUpdateTime}
+        />
       ) : <>
       <SearchBar
         onSearch={handleSearch}

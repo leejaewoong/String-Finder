@@ -44,7 +44,8 @@ describe('parseStringTagName', () => {
 describe('scanStringTags', () => {
   it('collects referenced locators before target nodes are loaded', () => {
     const fixture = structuredClone(figmaSpecFixture);
-    fixture.children = fixture.children?.filter((node) => node.type !== 'FRAME');
+    const screenFrame = fixture.children?.find((node) => node.id === '1889:25160');
+    fixture.children = screenFrame?.children?.filter((node) => node.id.startsWith('tag:'));
 
     expect(collectStringTagLocators(fixture)).toEqual([
       'I1889:25171;8970:7176',
@@ -52,7 +53,7 @@ describe('scanStringTags', () => {
     ]);
   });
 
-  it('uses the referenced target text and selects the outermost frame excluding the tag', () => {
+  it('selects the nearest frame shared by the tag and its target text', () => {
     const result = scanStringTags(figmaSpecFixture);
 
     expect(result.issues).toEqual([]);
@@ -65,6 +66,24 @@ describe('scanStringTags', () => {
         id: '1889:25160',
         name: '메인_외형 챌린지 선택',
       },
+      layerPath: ['스펙 페이지', '메인_외형 챌린지 선택', 'Frame 66791', 'Text'],
+      layerTypes: ['FRAME', 'FRAME', 'FRAME', 'TEXT'],
+      screenContext: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Tab Item',
+          text: '외형 챌린지',
+          states: { Selected: true },
+        }),
+        expect.objectContaining({
+          name: 'Title',
+          text: '외형 챌린지',
+        }),
+        expect.objectContaining({
+          name: 'Global Header',
+          text: '로비',
+          states: { State: 'Lobby' },
+        }),
+      ]),
     });
     expect(result.strings[1]).toMatchObject({
       delimiter: 'B',
@@ -91,5 +110,26 @@ describe('scanStringTags', () => {
         delimiter: 'C',
       }),
     ]);
+  });
+
+  it('keeps one row and reports duplicate tags that target the same node', () => {
+    const fixture = structuredClone(figmaSpecFixture);
+    const frame = fixture.children?.find((node) => node.id === '1889:25160');
+    frame?.children?.push({
+      id: 'tag:C',
+      name: '03. 스트링 태그 (%stringTag^C^Random Map duplicate^1889:25196^FEATURE:SCREEN_BUTTON_0)',
+      type: 'INSTANCE',
+    });
+
+    const result = scanStringTags(fixture);
+
+    expect(result.strings).toHaveLength(2);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'FIGMA_TARGET_DUPLICATE',
+        rowKey: 'tag:C',
+        delimiter: 'C',
+      }),
+    ]));
   });
 });

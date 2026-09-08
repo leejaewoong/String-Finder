@@ -17,13 +17,20 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 class OpenAIService {
-  private model: string;
+  private modelOverride?: string;
 
   constructor() {
-    this.model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
     logInfo('[OpenAI] Constructor called');
     logInfo('[OpenAI] API Key exists:', !!process.env.OPENAI_API_KEY);
-    logInfo('[OpenAI] Using model:', this.model);
+    logInfo('[OpenAI] Using model:', this.getModel());
+  }
+
+  private getModel(): string {
+    return this.modelOverride || process.env.OPENAI_MODEL || 'gpt-5.6-terra';
+  }
+
+  private getReasoningEffort(): string {
+    return process.env.OPENAI_REASONING_EFFORT || 'low';
   }
 
   private getApiKey(): string {
@@ -50,7 +57,7 @@ class OpenAIService {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.getModel(),
           messages: [
             {
               role: 'system',
@@ -61,8 +68,8 @@ class OpenAIService {
               content: `Translate the following text to all supported languages (${langCodes}):\n\n"${text}"\n\nRespond with a JSON object where keys are language codes and values are translations. Example: {"ko":"번역","ja":"翻訳",...}`
             }
           ],
-          temperature: 0.3,
-          max_tokens: 1500,
+          reasoning_effort: this.getReasoningEffort(),
+          max_completion_tokens: 1500,
           response_format: { type: "json_object" },
         }),
       });
@@ -137,7 +144,7 @@ class OpenAIService {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.getModel(),
           messages: [
             {
               role: 'system',
@@ -183,8 +190,8 @@ class OpenAIService {
                 Respond with ONLY a JSON object where keys are language codes and values are abbreviated translations.`
             }
           ],
-          temperature: 0.1,
-          max_tokens: 1000,
+          reasoning_effort: this.getReasoningEffort(),
+          max_completion_tokens: 1000,
           response_format: { type: "json_object" },
         }),
       });
@@ -274,7 +281,7 @@ class OpenAIService {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.getModel(),
           messages: [
             {
               role: 'system',
@@ -318,8 +325,8 @@ class OpenAIService {
                 Respond with JSON only.`
             }
           ],
-          temperature: 0.2,
-          max_tokens: 300,
+          reasoning_effort: this.getReasoningEffort(),
+          max_completion_tokens: 300,
           response_format: { type: "json_object" },
         }),
       });
@@ -359,9 +366,9 @@ class OpenAIService {
     }
   }
 
-  // Fine-tuned 모델 설정
+  // 실행 중 모델을 명시적으로 재설정합니다.
   setModel(modelId: string) {
-    this.model = modelId;
+    this.modelOverride = modelId;
   }
 }
 

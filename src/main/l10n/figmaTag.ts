@@ -20,6 +20,15 @@ export interface FigmaNode {
   children?: FigmaNode[];
   componentProperties?: Record<string, FigmaComponentProperty>;
   absoluteBoundingBox?: FigmaBoundingBox;
+  visible?: boolean;
+}
+
+export interface FigmaScreenContextItem {
+  name: string;
+  type: string;
+  path: string[];
+  text?: string;
+  states?: Record<string, string | boolean>;
 }
 
 export interface ParsedStringTag {
@@ -41,6 +50,8 @@ export interface FigmaTaggedString extends ParsedStringTag {
   korean: string;
   frame: FigmaFrameRef;
   layerPath: string[];
+  layerTypes?: string[];
+  screenContext?: FigmaScreenContextItem[];
 }
 
 export interface FigmaTagScanResult {
@@ -142,17 +153,16 @@ export function selectExportFrame(
     tagCursor = index.parents.get(tagCursor);
   }
 
-  const candidates: FigmaNode[] = [];
   let targetCursor: string | undefined = targetNodeId;
   while (targetCursor) {
     const node = index.nodes.get(targetCursor);
-    if (node?.type === 'FRAME' && !tagAncestors.has(node.id)) {
-      candidates.push(node);
+    if (node?.type === 'FRAME' && tagAncestors.has(node.id)) {
+      return node;
     }
     targetCursor = index.parents.get(targetCursor);
   }
 
-  return candidates.at(-1) ?? null;
+  return null;
 }
 
 function getNodeText(node: FigmaNode): string | null {
@@ -178,17 +188,54 @@ function getNodeText(node: FigmaNode): string | null {
   return null;
 }
 
-function getLayerPath(nodeId: string, index: FigmaNodeIndex): string[] {
-  const path: string[] = [];
+function getLayerContext(
+  nodeId: string,
+  index: FigmaNodeIndex,
+): { layerPath: string[]; layerTypes: string[] } {
+  const layerPath: string[] = [];
+  const layerTypes: string[] = [];
   let cursor: string | undefined = nodeId;
   while (cursor) {
     const node = index.nodes.get(cursor);
     if (node) {
-      path.unshift(node.name);
+      layerPath.unshift(node.name);
+      layerTypes.unshift(node.type);
     }
     cursor = index.parents.get(cursor);
   }
-  return path;
+  return { layerPath, layerTypes };
+}
+
+function isScreenContextNode(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return /\btab\b/.test(normalized)
+    || /\btitle\b/.test(normalized)
+    || /\blnb\b/.test(normalized)
+    || /\bglobal header\b/.test(normalized);
+}
+
+function collectScreenContext(
+  frameNode: FigmaNode,
+  index: FigmaNodeIndex,
+): FigmaScreenContextItem[] {
+  const context: FigmaScreenContextItem[] = [];
+  const visit = (node: FigmaNode) => {
+    if (node.visible !== false && isScreenContextNode(node.name)) {
+      const states = Object.fromEntries(Object.entries(node.componentProperties ?? {})
+        .map(([key, property]) => [key.replace(/#.*/, ''), property.value]));
+      const text = getNodeText(node);
+      context.push({
+        name: node.name,
+        type: node.type,
+        path: getLayerContext(node.id, index).layerPath,
+        ...(text ? { text } : {}),
+        ...(Object.keys(states).length > 0 ? { states } : {}),
+      });
+    }
+    node.children?.forEach(visit);
+  };
+  visit(frameNode);
+  return context;
 }
 
 function compareBounds(a?: FigmaBoundingBox, b?: FigmaBoundingBox): number {
@@ -202,16 +249,20 @@ export function scanStringTags(root: FigmaNode): FigmaTagScanResult {
   const index = buildNodeIndex(root);
   const strings: FigmaTaggedString[] = [];
   const issues: L10nIssue[] = [];
+  const seenTargetNodeIds = new Set<string>();
+  const screenContextByFrame = new Map<string, FigmaScreenContextItem[]>();
 
   for (const tagNode of index.nodes.values()) {
     let parsed: ParsedStringTag | null;
     try {
       parsed = parseStringTagName(tagNode.name);
     } catch (error) {
+      const frameNode = selectExportFrame(tagNode.id, tagNode.id, index);
       issues.push({
         code: 'FIGMA_TAG_INVALID',
         message: error instanceof Error ? error.message : String(error),
         rowKey: tagNode.id,
+        frameName: frameNode?.name,
       });
       continue;
     }
@@ -239,10 +290,31 @@ export function scanStringTags(root: FigmaNode): FigmaTagScanResult {
         message: `구분자 ${parsed.delimiter}의 텍스트 또는 내보낼 프레임을 찾을 수 없습니다.`,
         rowKey: tagNode.id,
         delimiter: parsed.delimiter,
+        frameName: frameNode?.name,
+        korean: korean ?? undefined,
       });
       continue;
     }
 
+    if (seenTargetNodeIds.has(targetNode.id)) {
+      issues.push({
+        code: 'FIGMA_TARGET_DUPLICATE',
+        message: `구분자 ${parsed.delimiter}가 이미 다른 태그에서 사용하는 타겟 노드를 가리킵니다.`,
+        rowKey: tagNode.id,
+        delimiter: parsed.delimiter,
+        frameName: frameNode.name,
+        korean,
+      });
+      continue;
+    }
+    seenTargetNodeIds.add(targetNode.id);
+
+    const layerContext = getLayerContext(targetNode.id, index);
+    let screenContext = screenContextByFrame.get(frameNode.id);
+    if (!screenContext) {
+      screenContext = collectScreenContext(frameNode, index);
+      screenContextByFrame.set(frameNode.id, screenContext);
+    }
     strings.push({
       ...parsed,
       tagNodeId: tagNode.id,
@@ -253,7 +325,8 @@ export function scanStringTags(root: FigmaNode): FigmaTagScanResult {
         name: frameNode.name,
         bounds: frameNode.absoluteBoundingBox,
       },
-      layerPath: getLayerPath(targetNode.id, index),
+      ...layerContext,
+      screenContext,
     });
   }
 

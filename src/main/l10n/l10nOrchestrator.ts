@@ -10,17 +10,36 @@ import {
 } from '../../shared/l10nTypes';
 import { ConfluenceChildPage, ConfluencePage, parseConfluencePageUrl } from './confluenceClient';
 import {
+  applyFigmaSourceUpdates,
   applyStringIdUpdates,
   compareWikiRows,
   createL10nTable,
+  createL10nSyncMetadata,
+  EXISTING_STRING_ID_NOTE,
   findL10nTable,
+  L10N_SYNC_PROPERTY_KEY,
+  L10nSyncMetadata,
   MatchedWikiString,
+  normalizeL10nSyncMetadata,
 } from './confluenceTable';
-import { FigmaScanResult } from './figmaClient';
+import { FigmaScannedFrame, FigmaScanResult } from './figmaClient';
+import { buildFeatureCatalog, featureTargetMap } from './featureCatalog';
 import { applyJsonChanges, loadInputFiles, planJsonChanges } from './jsonRepository';
 import { L10nInferenceResult, L10nInferenceRow } from './l10nOpenAiClient';
 import { resolveReleaseDate } from './releaseDate';
-import { buildStringIndex, decideStringIds, StringIdDecision } from './stringIdRules';
+import {
+  buildStringIndex,
+  decideStringIds,
+  findStringIdCollisions,
+  findStringIdTypeIssues,
+  StringIdDecision,
+  StringIdRow,
+} from './stringIdRules';
+import {
+  emptyL10nTaskState,
+  prepareL10nTaskStateForInput,
+} from './l10nTaskState';
+import { cloneL10nInput } from '../../shared/l10nSession';
 
 interface FigmaGateway {
   scan(urls: string[], signal?: AbortSignal): Promise<FigmaScanResult>;
@@ -30,8 +49,21 @@ interface FigmaGateway {
 interface ConfluenceGateway {
   getPage(pageId: string, signal?: AbortSignal): Promise<ConfluencePage>;
   updatePage(pageId: string, storage: string, expectedVersion: number, signal?: AbortSignal): Promise<ConfluencePage>;
+  setPageFullWidth(pageId: string, signal?: AbortSignal): Promise<void>;
   uploadAttachment(pageId: string, filePath: string, fileName: string, signal?: AbortSignal): Promise<void>;
   getChildPages(parentPageId: string, signal?: AbortSignal): Promise<ConfluenceChildPage[]>;
+  getContentProperty<T>(
+    pageId: string,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<{ value: T; version: number } | undefined>;
+  setContentProperty(
+    pageId: string,
+    key: string,
+    value: unknown,
+    currentVersion?: number,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 interface OpenAiGateway {
@@ -61,16 +93,7 @@ const EMPTY_STATS: L10nStats = {
 };
 
 function idleState(): L10nTaskState {
-  return {
-    stage: 'idle',
-    label: '대기 중',
-    attentionCount: 0,
-    issues: [],
-    stats: { ...EMPTY_STATS },
-    canGenerate: true,
-    canFinalize: false,
-    canCancel: false,
-  };
+  return emptyL10nTaskState();
 }
 
 function isAbort(error: unknown): boolean {
@@ -78,11 +101,14 @@ function isAbort(error: unknown): boolean {
     || error instanceof Error && error.name === 'AbortError';
 }
 
-function featureCandidates(fileNames: Iterable<string>): string[] {
-  return [...fileNames]
-    .filter((fileName) => /^ui_.+\.json$/i.test(fileName) && fileName.toLowerCase() !== 'ui_common.json')
-    .map((fileName) => fileName.replace(/^ui_|\.json$/gi, '').toUpperCase())
-    .sort();
+function uniqueIssues(issues: L10nIssue[]): L10nIssue[] {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.code}\u0000${issue.rowKey ?? ''}\u0000${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function decisionStats(total: number, decisions: StringIdDecision[], issueCount: number): L10nStats {
@@ -104,23 +130,52 @@ function inferenceRows(rows: MatchedWikiString[]): L10nInferenceRow[] {
     english: row.english,
     frameName: row.frame.name,
     idHint: row.stringIdHint,
+    existingStringId: row.stringId || undefined,
+    tagLabel: row.label,
+    layerPath: row.layerPath,
+    layerTypes: row.layerTypes,
+    screenContext: row.screenContext,
   }));
 }
 
+function stringIdUpdates(decisions: StringIdDecision[]) {
+  return decisions
+    .filter((decision) => decision.action !== 'skip')
+    .map((decision) => ({
+      rowKey: decision.rowKey,
+      stringId: decision.stringId,
+      note: decision.action === 'reuse' ? EXISTING_STRING_ID_NOTE : '',
+    }));
+}
+
 export class L10nOrchestrator {
-  private state = idleState();
+  private state: L10nTaskState;
   private listeners = new Set<StateListener>();
   private controller?: AbortController;
   private runId = 0;
   private readonly now: () => Date;
 
-  constructor(private readonly dependencies: L10nOrchestratorDependencies) {
+  constructor(
+    private readonly dependencies: L10nOrchestratorDependencies,
+    initialState: L10nTaskState = idleState(),
+  ) {
     this.now = dependencies.now ?? (() => new Date());
+    this.state = {
+      ...initialState,
+      ...(initialState.activeInput
+        ? { activeInput: cloneL10nInput(initialState.activeInput) }
+        : {}),
+      issues: initialState.issues.map((issue) => ({ ...issue })),
+      stats: { ...initialState.stats },
+    };
   }
 
   getState(): L10nTaskState {
     return {
       ...this.state,
+      ...(this.state.activeInput
+        ? { activeInput: cloneL10nInput(this.state.activeInput) }
+        : {}),
       issues: this.state.issues.map((issue) => ({ ...issue })),
       stats: { ...this.state.stats },
     };
@@ -133,6 +188,10 @@ export class L10nOrchestrator {
 
   cancel(): void {
     if (!this.state.canCancel || this.state.stage === 'json-applying') return;
+    this.reset();
+  }
+
+  reset(): void {
     this.runId += 1;
     this.controller?.abort();
     this.controller = undefined;
@@ -160,54 +219,118 @@ export class L10nOrchestrator {
 
   async generate(input: L10nInput): Promise<L10nRunResult> {
     this.validateInput(input);
+    this.state = prepareL10nTaskStateForInput(this.state, input);
     return this.run(async (runId, signal) => {
-      this.setProgress('figma-scanning', 'Figma와 위키 확인 중');
+      this.setProgress('figma-scanning', 'STRING ID 생성 중');
       const [figma, page] = await Promise.all([
         this.dependencies.figma.scan(input.figmaUrls, signal),
         this.dependencies.confluence.getPage(parseConfluencePageUrl(input.wikiUrl), signal),
       ]);
       this.assertActive(runId);
+      this.setState({ ...this.state, taskTitle: page.title });
       const table = findL10nTable(page.storage);
+      const syncProperty = await this.dependencies.confluence.getContentProperty<L10nSyncMetadata>(
+        page.id,
+        L10N_SYNC_PROPERTY_KEY,
+        signal,
+      );
 
       if (!table) {
-        return this.createWikiTable(input, page, figma, runId, signal);
+        return this.createWikiTable(input, page, figma, syncProperty, runId, signal);
       }
-      return this.generateIds(input, page, figma, runId, signal);
+      return this.generateIds(input, page, figma, syncProperty, runId, signal);
     });
   }
 
   async finalize(input: L10nInput): Promise<L10nRunResult> {
     this.validateInput(input);
+    this.state = prepareL10nTaskStateForInput(this.state, input);
     return this.run(async (runId, signal) => {
-      this.setProgress('figma-scanning', '최신 위키와 Figma 다시 확인 중');
+      this.setProgress('figma-scanning', 'JSON 반영 중');
       const [figma, page] = await Promise.all([
         this.dependencies.figma.scan(input.figmaUrls, signal),
         this.dependencies.confluence.getPage(parseConfluencePageUrl(input.wikiUrl), signal),
       ]);
       this.assertActive(runId);
-      const table = findL10nTable(page.storage);
-      if (!table) throw new Error('최종 확정할 L10N 표를 찾을 수 없습니다.');
-
-      const { rows, issues } = this.validRows(table, figma);
+      this.setState({ ...this.state, taskTitle: page.title });
+      const originalTable = findL10nTable(page.storage);
+      if (!originalTable) throw new Error('최종 확정할 L10N 표를 찾을 수 없습니다.');
+      const syncProperty = await this.dependencies.confluence.getContentProperty<L10nSyncMetadata>(
+        page.id,
+        L10N_SYNC_PROPERTY_KEY,
+        signal,
+      );
+      const currentMetadata = normalizeL10nSyncMetadata(syncProperty?.value);
+      const sourceUpdate = applyFigmaSourceUpdates(page.storage, figma.frames, currentMetadata);
+      if (figma.frames.length > 0) {
+        await this.refreshFrameAttachments(page.id, figma.frames, runId, signal);
+      }
+      const table = findL10nTable(sourceUpdate.storage)!;
+      const { rows, issues } = this.validRows(table, figma, sourceUpdate.metadata);
       const loaded = await loadInputFiles(this.dependencies.uiRoot);
+      const targetFiles = featureTargetMap(buildFeatureCatalog(loaded.files));
+      const stringIndex = buildStringIndex(loaded.files, loaded.koreanById);
+      const activeRowKeys = new Set(rows.map((row) => row.rowKey));
+      const reservedRows: StringIdRow[] = table.rows
+        .filter((row) => !activeRowKeys.has(row.rowKey))
+        .map((row) => ({
+          rowKey: row.rowKey,
+          korean: row.korean,
+          english: row.english,
+          stringId: row.stringId,
+        }));
       const inferred = await this.dependencies.openAi.infer(
         inferenceRows(rows),
-        featureCandidates(loaded.files.keys()),
+        [input.featurePrefix.trim().toUpperCase()],
         signal,
       );
       const decisions = decideStringIds(
-        rows.map((row) => ({ rowKey: row.rowKey, english: row.english, stringId: row.stringId })),
+        rows.map((row) => ({
+          rowKey: row.rowKey,
+          korean: row.korean,
+          english: row.english,
+          stringId: row.stringId,
+        })),
         inferred.inferences,
-        buildStringIndex(loaded.files),
+        stringIndex,
         input.releaseDate,
+        targetFiles,
+        reservedRows,
       );
-      const allIssues = [...figma.issues, ...issues, ...inferred.issues];
-      const updatedStorage = applyStringIdUpdates(page.storage, decisions
-        .filter((decision) => decision.action !== 'skip')
-        .map((decision) => ({ rowKey: decision.rowKey, stringId: decision.stringId })));
+      const allIssues = uniqueIssues([
+        ...figma.issues,
+        ...sourceUpdate.issues,
+        ...issues,
+        ...inferred.issues,
+        ...findStringIdTypeIssues(rows, inferred.inferences),
+      ]);
+      const updatedStorage = applyStringIdUpdates(
+        sourceUpdate.storage,
+        stringIdUpdates(decisions),
+      );
+      const updatedTable = findL10nTable(updatedStorage)!;
+      allIssues.push(...findStringIdCollisions(
+        updatedTable.rows.map((row) => ({
+          rowKey: row.rowKey,
+          korean: row.korean,
+          english: row.english,
+          stringId: row.stringId,
+        })),
+        stringIndex,
+      ));
       if (updatedStorage !== page.storage) {
         this.assertActive(runId);
         await this.dependencies.confluence.updatePage(page.id, updatedStorage, page.version, signal);
+      }
+      if (JSON.stringify(currentMetadata) !== JSON.stringify(sourceUpdate.metadata)) {
+        this.assertActive(runId);
+        await this.dependencies.confluence.setContentProperty(
+          page.id,
+          L10N_SYNC_PROPERTY_KEY,
+          sourceUpdate.metadata,
+          syncProperty?.version,
+          signal,
+        );
       }
 
       const plan = planJsonChanges(decisions, loaded);
@@ -232,12 +355,14 @@ export class L10nOrchestrator {
       const stats = decisionStats(table.rows.length, decisions, allIssues.length);
       this.setState({
         stage: 'complete',
-        label: 'JSON 반영 완료',
+        label: '작업 완료',
+        taskTitle: page.title,
+        activeInput: cloneL10nInput(input),
         attentionCount: allIssues.length,
         issues: allIssues,
         stats,
         lastGeneratedAt: this.now().toISOString(),
-        canGenerate: true,
+        canGenerate: false,
         canFinalize: false,
         canCancel: false,
       });
@@ -249,12 +374,15 @@ export class L10nOrchestrator {
     input: L10nInput,
     page: ConfluencePage,
     figma: FigmaScanResult,
+    syncProperty: { value: L10nSyncMetadata; version: number } | undefined,
     runId: number,
     signal: AbortSignal,
   ): Promise<L10nRunResult> {
-    this.setProgress('table-creating', '위키 표와 프레임 이미지 생성 중');
+    this.setProgress('table-creating', '위키 작성 중');
     await mkdir(this.dependencies.tempRoot, { recursive: true });
     const taskRoot = await mkdtemp(path.join(this.dependencies.tempRoot, 'l10n-'));
+    let decisions: StringIdDecision[] = [];
+    let allIssues: L10nIssue[] = [...figma.issues];
     try {
       for (const frame of figma.frames) {
         const outputPath = path.join(taskRoot, frame.attachmentName);
@@ -267,9 +395,58 @@ export class L10nOrchestrator {
           signal,
         );
       }
-      const storage = createL10nTable(page.storage, figma.frames);
+      let storage = createL10nTable(page.storage, figma.frames);
+      const table = findL10nTable(storage)!;
+      const { rows, issues } = this.validRows(table, figma);
+      const loaded = await loadInputFiles(this.dependencies.uiRoot);
+      const targetFiles = featureTargetMap(buildFeatureCatalog(loaded.files));
+      this.setProgress('id-generating', 'STRING ID 생성 중');
+      const inferred = await this.dependencies.openAi.infer(
+        inferenceRows(rows),
+        [input.featurePrefix.trim().toUpperCase()],
+        signal,
+      );
+      decisions = decideStringIds(
+        rows.map((row) => ({
+          rowKey: row.rowKey,
+          korean: row.korean,
+          english: row.english,
+          stringId: row.stringId,
+        })),
+        inferred.inferences,
+        buildStringIndex(loaded.files, loaded.koreanById),
+        input.releaseDate,
+        targetFiles,
+      );
+      allIssues = [
+        ...figma.issues,
+        ...issues,
+        ...inferred.issues,
+        ...findStringIdTypeIssues(rows, inferred.inferences),
+      ];
+      storage = applyStringIdUpdates(storage, stringIdUpdates(decisions));
+      const updatedTable = findL10nTable(storage)!;
+      allIssues.push(...findStringIdCollisions(
+        updatedTable.rows.map((row) => ({
+          rowKey: row.rowKey,
+          korean: row.korean,
+          english: row.english,
+          stringId: row.stringId,
+        })),
+        buildStringIndex(loaded.files, loaded.koreanById),
+      ));
+      this.assertActive(runId);
+      await this.dependencies.confluence.setPageFullWidth(page.id, signal);
       this.assertActive(runId);
       await this.dependencies.confluence.updatePage(page.id, storage, page.version, signal);
+      this.assertActive(runId);
+      await this.dependencies.confluence.setContentProperty(
+        page.id,
+        L10N_SYNC_PROPERTY_KEY,
+        createL10nSyncMetadata(figma.frames),
+        syncProperty?.version,
+        signal,
+      );
     } finally {
       await rm(taskRoot, { recursive: true, force: true });
     }
@@ -277,14 +454,16 @@ export class L10nOrchestrator {
     const total = figma.frames.reduce((count, frame) => count + frame.strings.length, 0);
     this.setState({
       stage: 'english-review',
-      label: '영문 검수 대기',
-      attentionCount: figma.issues.length,
-      issues: figma.issues,
-      stats: { ...EMPTY_STATS, total, skipped: figma.issues.length },
+      label: '영문 검수 대기중',
+      taskTitle: page.title,
+      activeInput: cloneL10nInput(input),
+      attentionCount: allIssues.length,
+      issues: allIssues,
+      stats: decisionStats(total, decisions, allIssues.length),
       lastGeneratedAt: this.now().toISOString(),
       canGenerate: true,
       canFinalize: false,
-      canCancel: false,
+      canCancel: true,
     });
     return { state: this.getState(), pageUrl: input.wikiUrl };
   }
@@ -293,66 +472,151 @@ export class L10nOrchestrator {
     input: L10nInput,
     page: ConfluencePage,
     figma: FigmaScanResult,
+    syncProperty: { value: L10nSyncMetadata; version: number } | undefined,
     runId: number,
     signal: AbortSignal,
   ): Promise<L10nRunResult> {
-    this.setProgress('id-generating', 'String ID 생성 중');
-    const table = findL10nTable(page.storage)!;
-    const { rows, issues } = this.validRows(table, figma);
+    this.setProgress('id-generating', 'STRING ID 생성 중');
+    const currentMetadata = normalizeL10nSyncMetadata(syncProperty?.value);
+    const sourceUpdate = applyFigmaSourceUpdates(page.storage, figma.frames, currentMetadata);
+    if (figma.frames.length > 0) {
+      this.setProgress('table-creating', '위키 작성 중');
+      await this.refreshFrameAttachments(page.id, figma.frames, runId, signal);
+      this.setProgress('id-generating', 'STRING ID 생성 중');
+    }
+    const table = findL10nTable(sourceUpdate.storage)!;
+    const { rows, issues } = this.validRows(table, figma, sourceUpdate.metadata);
+    const rowsForIdGeneration = rows.filter((row) =>
+      !sourceUpdate.preservedStringIdRowKeys.has(row.rowKey));
     const loaded = await loadInputFiles(this.dependencies.uiRoot);
-    const inferred = await this.dependencies.openAi.infer(
-      inferenceRows(rows),
-      featureCandidates(loaded.files.keys()),
-      signal,
-    );
+    const targetFiles = featureTargetMap(buildFeatureCatalog(loaded.files));
+    const stringIndex = buildStringIndex(loaded.files, loaded.koreanById);
+    const activeRowKeys = new Set(rows.map((row) => row.rowKey));
+    const reservedRows: StringIdRow[] = table.rows
+      .filter((row) => !activeRowKeys.has(row.rowKey))
+      .map((row) => ({
+        rowKey: row.rowKey,
+        korean: row.korean,
+        english: row.english,
+        stringId: row.stringId,
+      }));
+    const inferred = rowsForIdGeneration.length > 0
+      ? await this.dependencies.openAi.infer(
+        inferenceRows(rowsForIdGeneration),
+        [input.featurePrefix.trim().toUpperCase()],
+        signal,
+      )
+      : { inferences: [], issues: [] };
     const decisions = decideStringIds(
-      rows.map((row) => ({ rowKey: row.rowKey, english: row.english, stringId: row.stringId })),
+      rowsForIdGeneration.map((row) => ({
+        rowKey: row.rowKey,
+        korean: row.korean,
+        english: row.english,
+        stringId: row.stringId,
+      })),
       inferred.inferences,
-      buildStringIndex(loaded.files),
+      stringIndex,
       input.releaseDate,
+      targetFiles,
+      reservedRows,
     );
-    const allIssues = [...figma.issues, ...issues, ...inferred.issues];
-    const storage = applyStringIdUpdates(page.storage, decisions
-      .filter((decision) => decision.action !== 'skip')
-      .map((decision) => ({ rowKey: decision.rowKey, stringId: decision.stringId })));
+    const allIssues = uniqueIssues([
+      ...figma.issues,
+      ...sourceUpdate.issues,
+      ...issues,
+      ...inferred.issues,
+      ...findStringIdTypeIssues(rowsForIdGeneration, inferred.inferences),
+    ]);
+    const storage = applyStringIdUpdates(sourceUpdate.storage, stringIdUpdates(decisions));
+    const updatedTable = findL10nTable(storage)!;
+    allIssues.push(...findStringIdCollisions(
+      updatedTable.rows.map((row) => ({
+        rowKey: row.rowKey,
+        korean: row.korean,
+        english: row.english,
+        stringId: row.stringId,
+      })),
+      stringIndex,
+    ));
     if (storage !== page.storage) {
       this.assertActive(runId);
       await this.dependencies.confluence.updatePage(page.id, storage, page.version, signal);
     }
+    const metadataChanged = JSON.stringify(currentMetadata) !== JSON.stringify(sourceUpdate.metadata);
+    if (metadataChanged) {
+      this.assertActive(runId);
+      await this.dependencies.confluence.setContentProperty(
+        page.id,
+        L10N_SYNC_PROPERTY_KEY,
+        sourceUpdate.metadata,
+        syncProperty?.version,
+        signal,
+      );
+    }
 
-    const hasGeneratedIds = decisions.some((decision) => decision.action !== 'skip');
+    const hasGeneratedIds = decisions.some((decision) => decision.action !== 'skip')
+      || rows.some((row) =>
+        sourceUpdate.preservedStringIdRowKeys.has(row.rowKey) && Boolean(row.stringId.trim()));
+    const hasMissingEnglish = rows.some((row) => !row.english.trim());
     this.setState({
-      stage: hasGeneratedIds ? 'wiki-review' : 'english-review',
-      label: hasGeneratedIds ? '위키 String ID 검토 대기' : '영문 검수 대기',
+      stage: hasMissingEnglish || !hasGeneratedIds ? 'english-review' : 'wiki-review',
+      label: hasMissingEnglish || !hasGeneratedIds ? '영문 검수 대기중' : 'STRING ID 검토 중',
+      taskTitle: page.title,
+      activeInput: cloneL10nInput(input),
       attentionCount: allIssues.length,
       issues: allIssues,
       stats: decisionStats(table.rows.length, decisions, allIssues.length),
       lastGeneratedAt: this.now().toISOString(),
       canGenerate: true,
-      canFinalize: hasGeneratedIds,
-      canCancel: false,
+      canFinalize: hasGeneratedIds && !hasMissingEnglish,
+      canCancel: true,
     });
     return { state: this.getState(), pageUrl: input.wikiUrl };
+  }
+
+  private async refreshFrameAttachments(
+    pageId: string,
+    frames: FigmaScannedFrame[],
+    runId: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await mkdir(this.dependencies.tempRoot, { recursive: true });
+    const taskRoot = await mkdtemp(path.join(this.dependencies.tempRoot, 'l10n-refresh-'));
+    try {
+      for (const frame of frames) {
+        const outputPath = path.join(taskRoot, frame.attachmentName);
+        await this.dependencies.figma.exportFrame(frame.fileKey, frame.id, outputPath, signal);
+        this.assertActive(runId);
+        await this.dependencies.confluence.uploadAttachment(
+          pageId,
+          outputPath,
+          frame.attachmentName,
+          signal,
+        );
+      }
+    } finally {
+      await rm(taskRoot, { recursive: true, force: true });
+    }
   }
 
   private validRows(
     table: NonNullable<ReturnType<typeof findL10nTable>>,
     figma: FigmaScanResult,
+    metadata?: L10nSyncMetadata,
   ): { rows: MatchedWikiString[]; issues: L10nIssue[] } {
-    const compared = compareWikiRows(table, figma.frames);
+    const compared = compareWikiRows(table, figma.frames, metadata);
     const issues = [...compared.issues];
-    const rows = compared.matched.filter((row) => {
-      if (row.english.trim()) return true;
-      issues.push({
+    for (const row of compared.matched) {
+      if (!row.english.trim()) issues.push({
         code: 'ENGLISH_MISSING',
         rowKey: row.rowKey,
         delimiter: row.delimiter,
         frameName: row.frame.name,
+        korean: row.korean,
         message: `구분자 ${row.delimiter}의 영문이 비어 있습니다.`,
       });
-      return false;
-    });
-    return { rows, issues };
+    }
+    return { rows: compared.matched, issues };
   }
 
   private async run(
@@ -373,7 +637,10 @@ export class L10nOrchestrator {
         ...idleState(),
         stage: 'error',
         label: '작업 실패',
+        taskTitle: this.state.taskTitle,
+        activeInput: this.state.activeInput,
         error: message,
+        canCancel: Boolean(this.state.taskTitle),
       });
       return { state: this.getState() };
     } finally {
@@ -384,6 +651,9 @@ export class L10nOrchestrator {
   private validateInput(input: L10nInput): void {
     if (!input.wikiUrl.trim()) throw new Error('위키 페이지 URL을 입력해 주세요.');
     if (!input.figmaUrls.some((url) => url.trim())) throw new Error('Figma URL을 하나 이상 입력해 주세요.');
+    if (!/^[A-Z0-9_]+$/.test(input.featurePrefix.trim().toUpperCase())) {
+      throw new Error('Feature Prefix는 영문 대문자, 숫자, 밑줄만 입력해 주세요.');
+    }
     if (!/^20\d{2}-\d{2}-\d{2}$/.test(input.releaseDate)) {
       throw new Error('Release Date를 YYYY-MM-DD 형식으로 입력해 주세요.');
     }

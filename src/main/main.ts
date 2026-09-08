@@ -68,6 +68,16 @@ app.whenReady().then(() => {
   registerL10nIpc(
     () => store.get('folderPath') as string | undefined,
     () => mainWindow,
+    {
+      load: () => store.get('l10nDraft'),
+      save: (draft) => store.set('l10nDraft', draft),
+      clear: () => store.delete('l10nDraft'),
+    },
+    {
+      load: () => store.get('l10nTaskState'),
+      save: (state) => store.set('l10nTaskState', state),
+      clear: () => store.delete('l10nTaskState'),
+    },
   );
 
   // 저장된 경로 자동 로드

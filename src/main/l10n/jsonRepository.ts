@@ -8,12 +8,14 @@ import {
 } from 'fs/promises';
 import * as path from 'path';
 import { InputFileData, L10nIssue } from '../../shared/l10nTypes';
+import { buildFeatureCatalog, featureTargetMap } from './featureCatalog';
 import { parseStringId, StringIdDecision } from './stringIdRules';
 
 export interface LoadedInputFiles {
   inputRoot: string;
   files: Map<string, InputFileData>;
   raw: Map<string, string>;
+  koreanById: Map<string, string>;
 }
 
 export interface JsonFileChange {
@@ -63,11 +65,26 @@ export async function loadInputFiles(uiRoot: string): Promise<LoadedInputFiles> 
     files.set(fileName, parsed);
     raw.set(fileName, content);
   }
-  return { inputRoot, files, raw };
+
+  const koreanById = new Map<string, string>();
+  try {
+    const koreanContent = await readFile(path.join(path.dirname(inputRoot), 'ui_ko.json'), 'utf8');
+    const koreanData = JSON.parse(koreanContent) as Record<string, unknown>;
+    if (koreanData && !Array.isArray(koreanData) && typeof koreanData === 'object') {
+      for (const [stringId, value] of Object.entries(koreanData)) {
+        if (typeof value === 'string') koreanById.set(stringId, value);
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  return { inputRoot, files, raw, koreanById };
 }
 
-function expectedFileName(feature: string): string {
-  return feature === 'COMMON' ? 'ui_common.json' : `ui_${feature.toLowerCase()}.json`;
+function expectedFileName(feature: string, targets: ReadonlyMap<string, string>): string {
+  if (feature === 'COMMON') return 'ui_common.json';
+  return targets.get(feature) ?? `ui_${feature.toLowerCase()}.json`;
 }
 
 export function planJsonChanges(
@@ -76,14 +93,18 @@ export function planJsonChanges(
 ): JsonChangePlan {
   const issues: L10nIssue[] = [];
   const additionsByFile = new Map<string, StringIdDecision[]>();
+  const targetFiles = featureTargetMap(buildFeatureCatalog(loaded.files));
 
   for (const decision of decisions) {
     if (decision.action === 'reuse' || decision.action === 'skip') continue;
     const parsed = parseStringId(decision.stringId);
-    if (!parsed || !decision.targetFile || decision.targetFile !== expectedFileName(parsed.feature)) {
+    if (!parsed
+      || !decision.targetFile
+      || decision.targetFile !== expectedFileName(parsed.feature, targetFiles)) {
       issues.push({
         code: 'STRING_ID_INVALID',
         rowKey: decision.rowKey,
+        korean: decision.korean,
         message: `${decision.stringId || '(빈 값)'}을 JSON 대상 파일과 연결할 수 없습니다.`,
       });
       continue;
@@ -93,6 +114,7 @@ export function planJsonChanges(
       issues.push({
         code: 'TARGET_FILE_MISSING',
         rowKey: decision.rowKey,
+        korean: decision.korean,
         message: `${decision.targetFile} 파일을 찾을 수 없습니다.`,
       });
       continue;
@@ -104,6 +126,7 @@ export function planJsonChanges(
         issues.push({
           code: 'STRING_ID_INVALID',
           rowKey: decision.rowKey,
+          korean: decision.korean,
           message: `${decision.stringId}가 다른 영문으로 이미 존재합니다.`,
         });
       }
@@ -117,6 +140,7 @@ export function planJsonChanges(
         issues.push({
           code: 'STRING_ID_INVALID',
           rowKey: decision.rowKey,
+          korean: decision.korean,
           message: `${decision.stringId}가 위키 안에서 서로 다른 영문에 사용되었습니다.`,
         });
       }

@@ -64,13 +64,14 @@ string 작업 시 다음과 같은 불편을 해소하기 위해 개발했습니
 - 설치 앱: `%APPDATA%\String-Finder\.env`
 - 개발 실행: 프로젝트 루트의 `.env`
 - 필수 값: `FIGMA_API_TOKEN`, `CONFLUENCE_BASE_URL`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`, `OPENAI_API_KEY`
-- 선택 값: `OPENAI_MODEL` (기본값 `gpt-4o-mini`)
+- 선택 값: `OPENAI_MODEL` (기본값 `gpt-5.6-terra`), `OPENAI_REASONING_EFFORT` (기본값 `low`)
 
 `.env` 예시는 다음과 같습니다.
 
 ```dotenv
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_REASONING_EFFORT=low
 FIGMA_API_TOKEN=
 CONFLUENCE_BASE_URL=https://krafton.atlassian.net
 CONFLUENCE_EMAIL=

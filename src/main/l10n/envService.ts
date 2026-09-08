@@ -12,7 +12,8 @@ const REQUIRED_KEYS = [
 ] as const;
 
 const ENV_TEMPLATE = `OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_REASONING_EFFORT=low
 
 FIGMA_API_TOKEN=
 

@@ -71,10 +71,14 @@ export interface ElectronAPI {
   openLogFile: () => Promise<boolean>;
   getL10nConfig: () => Promise<L10nConfigStatus>;
   openL10nEnv: () => Promise<string>;
+  getL10nDraft: () => Promise<L10nDraft>;
+  saveL10nDraft: (draft: L10nDraft) => Promise<void>;
+  getL10nFeatureOptions: () => Promise<L10nFeatureOption[]>;
   suggestL10nReleaseDate: (wikiUrl: string, figmaUrls: string[]) => Promise<ReleaseDateSuggestion>;
   generateL10nStringIds: (input: L10nInput) => Promise<L10nRunResult>;
   finalizeL10nStringIds: (input: L10nInput) => Promise<L10nRunResult>;
   cancelL10nTask: () => Promise<L10nTaskState>;
+  resetL10nTask: () => Promise<L10nTaskState>;
   getL10nState: () => Promise<L10nTaskState>;
   onL10nStateChanged: (callback: (state: L10nTaskState) => void) => () => void;
 }
@@ -88,6 +92,8 @@ declare global {
 export {};
 import {
   L10nConfigStatus,
+  L10nDraft,
+  L10nFeatureOption,
   L10nInput,
   L10nRunResult,
   L10nTaskState,

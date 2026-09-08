@@ -24,11 +24,15 @@ async function fixture() {
     'CLAN:MAIN_BUTTON_0': { Text: 'PLAY', ReleaseDate: '2025-01-01' },
   }, null, 4));
   await writeFile(path.join(inputRoot, 'ui_common.json'), '{}');
+  await writeFile(path.join(root, 'ui_ko.json'), JSON.stringify({
+    'CLAN:MAIN_BUTTON_0': '플레이',
+  }, null, 4));
   return { root, inputRoot };
 }
 
 const decision = (overrides: Partial<StringIdDecision> = {}): StringIdDecision => ({
   rowKey: 'row-1',
+  korean: '신규',
   english: 'NEW',
   releaseDate: '2026-12-03',
   stringId: 'CLAN:MAIN_BUTTON_1',
@@ -38,6 +42,16 @@ const decision = (overrides: Partial<StringIdDecision> = {}): StringIdDecision =
 });
 
 describe('JSON change planning', () => {
+  it('loads the Korean localization map next to the input directory', async () => {
+    const { root } = await fixture();
+
+    const loaded = await loadInputFiles(root);
+
+    expect(loaded.koreanById).toEqual(new Map([
+      ['CLAN:MAIN_BUTTON_0', '플레이'],
+    ]));
+  });
+
   it('does not modify JSON for any reused key', async () => {
     const { root } = await fixture();
     const loaded = await loadInputFiles(root);
@@ -80,6 +94,22 @@ describe('JSON change planning', () => {
 
     expect(plan.issues[0]).toMatchObject({ code: 'TARGET_FILE_MISSING', rowKey: 'row-1' });
     expect(plan.files.map((file) => file.fileName)).toEqual(['ui_common.json']);
+  });
+
+  it('accepts a key-derived target file whose name differs from the prefix', async () => {
+    const { root, inputRoot } = await fixture();
+    await writeFile(path.join(inputRoot, 'ui_lobby.json'), JSON.stringify({
+      'REPUTATION:REFERENCE_BODY_0': { Text: 'REFERENCE', ReleaseDate: '2025-01-01' },
+    }));
+    const loaded = await loadInputFiles(root);
+
+    const plan = planJsonChanges([decision({
+      stringId: 'REPUTATION:MAIN_BUTTON_0',
+      targetFile: 'ui_lobby.json',
+    })], loaded);
+
+    expect(plan.issues).toEqual([]);
+    expect(plan.files[0].fileName).toBe('ui_lobby.json');
   });
 });
 

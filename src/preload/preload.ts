@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { L10nInput, L10nTaskState } from '../shared/l10nTypes';
+import { L10nDraft, L10nInput, L10nTaskState } from '../shared/l10nTypes';
 
 // Main Process 로그를 DevTools 콘솔로 전달
 ipcRenderer.on('main-process-log', (_, logData: { level: string; message: string; args: any[]; timestamp: string }) => {
@@ -122,6 +122,15 @@ contextBridge.exposeInMainWorld('electron', {
   openL10nEnv: () =>
     ipcRenderer.invoke('l10n:open-env'),
 
+  getL10nDraft: () =>
+    ipcRenderer.invoke('l10n:get-draft'),
+
+  saveL10nDraft: (draft: L10nDraft) =>
+    ipcRenderer.invoke('l10n:save-draft', draft),
+
+  getL10nFeatureOptions: () =>
+    ipcRenderer.invoke('l10n:get-feature-options'),
+
   suggestL10nReleaseDate: (wikiUrl: string, figmaUrls: string[]) =>
     ipcRenderer.invoke('l10n:suggest-release-date', wikiUrl, figmaUrls),
 
@@ -133,6 +142,9 @@ contextBridge.exposeInMainWorld('electron', {
 
   cancelL10nTask: () =>
     ipcRenderer.invoke('l10n:cancel'),
+
+  resetL10nTask: () =>
+    ipcRenderer.invoke('l10n:reset'),
 
   getL10nState: () =>
     ipcRenderer.invoke('l10n:get-state'),

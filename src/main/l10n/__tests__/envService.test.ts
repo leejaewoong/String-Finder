@@ -57,6 +57,8 @@ describe('ensureEnvFile', () => {
     const firstContent = await readFile(envPath, 'utf8');
     expect(firstContent).toContain('FIGMA_API_TOKEN=');
     expect(firstContent).toContain('CONFLUENCE_API_TOKEN=');
+    expect(firstContent).toContain('OPENAI_MODEL=gpt-5.6-terra');
+    expect(firstContent).toContain('OPENAI_REASONING_EFFORT=low');
     expect(firstContent).not.toContain('secret');
 
     await ensureEnvFile(envPath);

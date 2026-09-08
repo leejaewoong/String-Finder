@@ -1,16 +1,59 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, CircleHelp } from 'lucide-react';
 import {
   L10nConfigStatus,
+  L10nDraft,
+  L10nFeatureOption,
   L10nInput,
   L10nTaskState,
 } from '../../shared/l10nTypes';
+import {
+  getL10nActionAvailability,
+  getFeatureMenuMaxHeight,
+  getL10nIssueGroups,
+  L10nIssueGroupMode,
+  getL10nTaskTitle,
+  isL10nBusy,
+  shouldSuggestReleaseDate,
+} from '../l10nPresentation';
+import { StatusBar } from './StatusBar';
 
 interface StringIdGeneratorProps {
   taskState: L10nTaskState;
+  draft: L10nDraft;
+  onDraftChange: (changes: Partial<L10nDraft>) => void;
   onStateChange: (state: L10nTaskState) => void;
+  onCancel: () => Promise<void>;
+  onComplete: () => Promise<void>;
+  lastUpdateTime?: string | null;
 }
 
 const STAGE_LABELS = ['입력 확인', 'String ID 생성', '위키 검토 대기', 'JSON 반영'];
+
+interface FieldLabelProps {
+  htmlFor: string;
+  title: string;
+  help: string;
+}
+
+const FieldLabel: React.FC<FieldLabelProps> = ({ htmlFor, title, help }) => (
+  <div className="l10n-field-heading">
+    <label className="l10n-field-title" htmlFor={htmlFor}>{title}</label>
+    <span className="l10n-field-help">
+      <button
+        type="button"
+        className="l10n-field-help-trigger"
+        aria-label={`${title} 도움말`}
+        aria-describedby={`${htmlFor}-help`}
+      >
+        <CircleHelp size={14} aria-hidden="true" />
+      </button>
+      <span id={`${htmlFor}-help`} className="l10n-field-tooltip" role="tooltip">
+        {help}
+      </span>
+    </span>
+  </div>
+);
 
 function splitUrls(value: string): string[] {
   return value.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
@@ -23,17 +66,62 @@ function formatTime(value?: string): string {
 
 export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
   taskState,
+  draft,
+  onDraftChange,
   onStateChange,
+  onCancel,
+  onComplete,
+  lastUpdateTime,
 }) => {
-  const [wikiUrl, setWikiUrl] = useState('');
-  const [figmaText, setFigmaText] = useState('');
-  const [releaseDate, setReleaseDate] = useState('');
   const [dateWarning, setDateWarning] = useState('');
   const [config, setConfig] = useState<L10nConfigStatus | null>(null);
+  const [featureOptions, setFeatureOptions] = useState<L10nFeatureOption[]>([]);
   const [actionError, setActionError] = useState('');
-  const manualDate = useRef(false);
-  const figmaUrls = splitUrls(figmaText);
-  const inputReady = Boolean(wikiUrl.trim() && figmaUrls.length && /^20\d{2}-\d{2}-\d{2}$/.test(releaseDate));
+  const [isFeatureMenuOpen, setIsFeatureMenuOpen] = useState(false);
+  const [isFeatureFiltering, setIsFeatureFiltering] = useState(false);
+  const [activeFeatureIndex, setActiveFeatureIndex] = useState(0);
+  const [featureMenuMaxHeight, setFeatureMenuMaxHeight] = useState(280);
+  const [issueGroupMode, setIssueGroupMode] = useState<L10nIssueGroupMode>('frame');
+  const lastSuggestedInput = useRef('');
+  const featureComboboxRef = useRef<HTMLDivElement>(null);
+  const featureInputRef = useRef<HTMLInputElement>(null);
+  const featureMenuRef = useRef<HTMLUListElement>(null);
+  const figmaUrls = splitUrls(draft.figmaText);
+  const inputReady = Boolean(draft.wikiUrl.trim()
+    && figmaUrls.length
+    && /^[A-Z0-9_]+$/.test(draft.featurePrefix)
+    && /^20\d{2}-\d{2}-\d{2}$/.test(draft.releaseDate));
+  const isComplete = taskState.stage === 'complete';
+  const canCancel = taskState.canCancel
+    || (taskState.stage === 'idle' && Boolean(draft.taskTitle));
+  const featureQuery = draft.featurePrefix.trim();
+  const visibleFeatureOptions = isFeatureFiltering && featureQuery
+    ? featureOptions.filter((option) => option.prefix.startsWith(featureQuery))
+    : featureOptions;
+  const issueGroups = getL10nIssueGroups(taskState.issues, issueGroupMode);
+  const actionAvailability = getL10nActionAvailability(taskState, draft);
+
+  const updateFeatureMenuHeight = () => {
+    const input = featureInputRef.current;
+    if (!input) return;
+    setFeatureMenuMaxHeight(getFeatureMenuMaxHeight(
+      window.innerHeight,
+      input.getBoundingClientRect().bottom,
+    ));
+  };
+
+  const openFeatureMenu = (filtering: boolean) => {
+    setIsFeatureFiltering(filtering);
+    setIsFeatureMenuOpen(true);
+    updateFeatureMenuHeight();
+  };
+
+  const selectFeature = (prefix: string) => {
+    onDraftChange({ featurePrefix: prefix });
+    setIsFeatureMenuOpen(false);
+    setIsFeatureFiltering(false);
+    featureInputRef.current?.focus();
+  };
 
   const refreshConfig = async () => {
     const next = await window.electron.getL10nConfig();
@@ -43,33 +131,83 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
 
   useEffect(() => {
     refreshConfig().catch((error) => setActionError(String(error)));
+    window.electron.getL10nFeatureOptions()
+      .then(setFeatureOptions)
+      .catch(() => setFeatureOptions([]));
   }, []);
 
   useEffect(() => {
-    if (manualDate.current || !config?.configured || (!wikiUrl.trim() && figmaUrls.length === 0)) return;
+    if (!isFeatureMenuOpen) return undefined;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!featureComboboxRef.current?.contains(event.target as Node)) {
+        setIsFeatureMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('scroll', updateFeatureMenuHeight, true);
+    window.addEventListener('resize', updateFeatureMenuHeight);
+    updateFeatureMenuHeight();
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('scroll', updateFeatureMenuHeight, true);
+      window.removeEventListener('resize', updateFeatureMenuHeight);
+    };
+  }, [isFeatureMenuOpen]);
+
+  useEffect(() => {
+    if (!isFeatureMenuOpen) return;
+    setActiveFeatureIndex((current) => Math.min(
+      current,
+      Math.max(0, visibleFeatureOptions.length - 1),
+    ));
+  }, [isFeatureMenuOpen, visibleFeatureOptions.length]);
+
+  useEffect(() => {
+    if (!isFeatureMenuOpen) return;
+    const activeOption = featureMenuRef.current?.children[activeFeatureIndex] as HTMLElement | undefined;
+    activeOption?.scrollIntoView({ block: 'nearest' });
+  }, [activeFeatureIndex, isFeatureMenuOpen]);
+
+  useEffect(() => {
+    if (!shouldSuggestReleaseDate(draft, figmaUrls, Boolean(config?.configured))) return;
+    const suggestionInput = [draft.wikiUrl.trim(), ...figmaUrls].join('\u0000');
+    if (draft.releaseDateSource === 'auto'
+      && draft.releaseDate
+      && lastSuggestedInput.current === suggestionInput) return;
     let active = true;
-    const timeout = window.setTimeout(async () => {
+    const suggest = async () => {
       try {
-        const suggestion = await window.electron.suggestL10nReleaseDate(wikiUrl.trim(), figmaUrls);
-        if (active && !manualDate.current) {
-          if (suggestion.releaseDate) setReleaseDate(suggestion.releaseDate);
+        const suggestion = await window.electron.suggestL10nReleaseDate(draft.wikiUrl.trim(), figmaUrls);
+        if (active) {
+          if (suggestion.releaseDate) {
+            lastSuggestedInput.current = suggestionInput;
+            onDraftChange({ releaseDate: suggestion.releaseDate, releaseDateSource: 'auto' });
+          }
           setDateWarning(suggestion.warning ?? '');
         }
       } catch {
-        // Partial URLs are expected while the user is typing.
+        // 입력이 바뀌거나 외부 조회가 실패하면 다음 입력에서 다시 시도합니다.
       }
-    }, 400);
+    };
+    suggest().catch(() => undefined);
     return () => {
       active = false;
-      window.clearTimeout(timeout);
     };
-  }, [wikiUrl, figmaText, config?.configured]);
+  }, [
+    draft.wikiUrl,
+    draft.figmaText,
+    draft.releaseDate,
+    draft.releaseDateSource,
+    config?.configured,
+    onDraftChange,
+  ]);
 
   const buildInput = (): L10nInput => ({
-    wikiUrl: wikiUrl.trim(),
+    wikiUrl: draft.wikiUrl.trim(),
     figmaUrls,
-    releaseDate,
-    releaseDateSource: manualDate.current ? 'manual' : 'auto',
+    featurePrefix: draft.featurePrefix,
+    releaseDate: draft.releaseDate,
+    releaseDateSource: draft.releaseDateSource,
   });
 
   const runAction = async (action: 'generate' | 'finalize') => {
@@ -97,25 +235,27 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
           : 1;
 
   return (
-    <main className="l10n-screen">
+    <>
+      <main className="l10n-screen">
       <div className="l10n-heading-row">
         <div>
-          <h2>새 String ID 작업</h2>
-          <p>Figma와 위키를 바탕으로 String ID를 생성합니다.</p>
+          <h2>{getL10nTaskTitle(taskState, draft)}</h2>
         </div>
         <div className="l10n-actions">
-          <button
-            type="button"
-            className="l10n-button is-cancel"
-            disabled={!taskState.canCancel}
-            onClick={async () => onStateChange(await window.electron.cancelL10nTask())}
-          >
-            작업 취소
-          </button>
+          {!isComplete && (
+            <button
+              type="button"
+              className="l10n-button is-cancel"
+              disabled={!canCancel}
+              onClick={onCancel}
+            >
+              작업 취소
+            </button>
+          )}
           <button
             type="button"
             className="l10n-button is-generate"
-            disabled={!config?.configured || !inputReady || !taskState.canGenerate}
+            disabled={!config?.configured || !inputReady || !actionAvailability.canGenerate}
             onClick={() => runAction('generate')}
           >
             String ID 생성
@@ -123,10 +263,10 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
           <button
             type="button"
             className="l10n-button is-finalize"
-            disabled={!config?.configured || !inputReady || !taskState.canFinalize}
-            onClick={() => runAction('finalize')}
+            disabled={!isComplete && (!config?.configured || !inputReady || !actionAvailability.canFinalize)}
+            onClick={isComplete ? onComplete : () => runAction('finalize')}
           >
-            최종 확정
+            {isComplete ? '완료' : 'JSON 반영'}
           </button>
         </div>
       </div>
@@ -150,34 +290,148 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
       <div className="l10n-grid">
         <section className="l10n-panel l10n-input-panel">
           <h3>입력</h3>
-          <label className="l10n-field">
-            <span>WIKI PAGE</span>
-            <input
-              value={wikiUrl}
-              onChange={(event) => setWikiUrl(event.target.value)}
-              placeholder="https://krafton.atlassian.net/wiki/..."
+          <div className="l10n-field">
+            <FieldLabel
+              htmlFor="l10n-figma-file"
+              title="FIGMA FILE"
+              help="스트링 태그의 타겟 텍스트 레이어 값을 추적하여 위키를 업데이트하고 String ID를 제안합니다."
             />
-          </label>
-          <label className="l10n-field">
-            <span>FIGMA PAGES</span>
-            <textarea
-              value={figmaText}
-              onChange={(event) => setFigmaText(event.target.value)}
-              placeholder={'Figma URL을 한 줄에 하나씩 입력하세요.\nhttps://www.figma.com/design/...'}
-            />
-          </label>
-          <label className="l10n-field">
-            <span>RELEASE DATE</span>
             <input
+              id="l10n-figma-file"
+              value={draft.figmaText}
+              onChange={(event) => onDraftChange({ figmaText: event.target.value })}
+              placeholder={'스트링 태그가 포함된 프레임이 있는 페이지 링크를 입력하세요.'}
+            />
+          </div>
+          <div className="l10n-field">
+            <FieldLabel
+              htmlFor="l10n-wiki-page"
+              title="WIKI PAGE"
+              help="FIGMA FILE의 텍스트와 비교하여 테이블을 최신화하고 String ID를 추천합니다.</br>테이블이 없는 경우 테이블을 생성합니다."
+            />
+            <input
+              id="l10n-wiki-page"
+              value={draft.wikiUrl}
+              onChange={(event) => onDraftChange({ wikiUrl: event.target.value })}
+              placeholder="String ID 테이블이 있는 위키 페이지 링크를 입력하세요."
+            />
+          </div>
+          <div className="l10n-field">
+            <FieldLabel
+              htmlFor="l10n-feature-prefix"
+              title="FEATURE PREFIX"
+              help="String ID 생성 시 적용할 Feature Prefix를 선택하세요.</br>신규 피쳐일 경우에는 직접 작성할 수 있습니다."
+            />
+            <div className="l10n-feature-combobox" ref={featureComboboxRef}>
+              <input
+                id="l10n-feature-prefix"
+                ref={featureInputRef}
+                className="l10n-feature-input"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={isFeatureMenuOpen}
+                aria-controls="l10n-feature-prefix-list"
+                aria-activedescendant={isFeatureMenuOpen && visibleFeatureOptions.length
+                  ? `l10n-feature-option-${activeFeatureIndex}`
+                  : undefined}
+                value={draft.featurePrefix}
+                onFocus={() => {
+                  const selectedIndex = featureOptions.findIndex(
+                    (option) => option.prefix === draft.featurePrefix,
+                  );
+                  setActiveFeatureIndex(Math.max(0, selectedIndex));
+                  openFeatureMenu(false);
+                }}
+                onChange={(event) => {
+                  onDraftChange({
+                    featurePrefix: event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''),
+                  });
+                  setActiveFeatureIndex(0);
+                  openFeatureMenu(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    if (!isFeatureMenuOpen) openFeatureMenu(false);
+                    setActiveFeatureIndex((current) => Math.min(
+                      current + 1,
+                      Math.max(0, visibleFeatureOptions.length - 1),
+                    ));
+                  } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    if (!isFeatureMenuOpen) openFeatureMenu(false);
+                    setActiveFeatureIndex((current) => Math.max(0, current - 1));
+                  } else if (event.key === 'Enter' && isFeatureMenuOpen) {
+                    event.preventDefault();
+                    const selected = visibleFeatureOptions[activeFeatureIndex];
+                    if (selected) selectFeature(selected.prefix);
+                  } else if (event.key === 'Escape') {
+                    setIsFeatureMenuOpen(false);
+                  }
+                }}
+                placeholder="String ID 생성 시 적용할 Feature Prefix를 선택하세요."
+                autoComplete="on"
+              />
+              <button
+                type="button"
+                className="l10n-feature-toggle"
+                aria-label={isFeatureMenuOpen ? '피쳐 목록 닫기' : '피쳐 목록 열기'}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  if (isFeatureMenuOpen) {
+                    setIsFeatureMenuOpen(false);
+                  } else {
+                    featureInputRef.current?.focus();
+                    openFeatureMenu(false);
+                  }
+                }}
+              >
+                <ChevronDown size={16} aria-hidden="true" />
+              </button>
+              {isFeatureMenuOpen && visibleFeatureOptions.length > 0 && (
+                <ul
+                  id="l10n-feature-prefix-list"
+                  ref={featureMenuRef}
+                  className="l10n-feature-menu"
+                  role="listbox"
+                  style={{ maxHeight: featureMenuMaxHeight }}
+                >
+                  {visibleFeatureOptions.map((option, index) => (
+                    <li key={option.prefix} role="none">
+                      <button
+                        id={`l10n-feature-option-${index}`}
+                        type="button"
+                        role="option"
+                        aria-selected={draft.featurePrefix === option.prefix}
+                        className={`l10n-feature-option${index === activeFeatureIndex ? ' is-active' : ''}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveFeatureIndex(index)}
+                        onClick={() => selectFeature(option.prefix)}
+                      >
+                        {option.prefix}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <div className="l10n-field">
+            <FieldLabel
+              htmlFor="l10n-release-date"
+              title="RELEASE DATE"
+              help="String 값 입력 시 포함할 Release Date를 입력하세요."
+            />
+            <input
+              id="l10n-release-date"
               type="date"
-              value={releaseDate}
+              value={draft.releaseDate}
               onChange={(event) => {
-                manualDate.current = true;
-                setReleaseDate(event.target.value);
+                onDraftChange({ releaseDate: event.target.value, releaseDateSource: 'manual' });
                 setDateWarning('');
               }}
             />
-          </label>
+          </div>
           {dateWarning && <p className="l10n-inline-warning">{dateWarning}</p>}
           {(actionError || taskState.error) && (
             <p className="l10n-error" role="alert">{actionError || taskState.error}</p>
@@ -189,6 +443,15 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
             <h3>작업 상태</h3>
             {taskState.attentionCount > 0 && <span>{taskState.attentionCount}개 확인 필요</span>}
           </div>
+          {isL10nBusy(taskState.stage) && (
+            <div
+              className="l10n-progress-track"
+              role="progressbar"
+              aria-label={taskState.label}
+            >
+              <span />
+            </div>
+          )}
           <div className="l10n-stage-list">
             {STAGE_LABELS.map((label, index) => {
               const isDone = index < stageIndex || taskState.stage === 'complete';
@@ -209,19 +472,62 @@ export const StringIdGenerator: React.FC<StringIdGeneratorProps> = ({
           </dl>
           {taskState.issues.length > 0 && (
             <details className="l10n-issues">
-              <summary>확인 필요한 항목 보기</summary>
-              <ul>
-                {taskState.issues.map((issue, index) => (
-                  <li key={`${issue.code}-${issue.rowKey ?? index}`}>
-                    <strong>{issue.code}</strong>
-                    <span>{issue.message}</span>
-                  </li>
+              <summary>확인 필요한 항목 보기 ({taskState.issues.length})</summary>
+              <div className="l10n-issue-view-toggle" role="group" aria-label="확인 항목 보기 방식">
+                <button
+                  type="button"
+                  className={issueGroupMode === 'frame' ? 'is-active' : ''}
+                  aria-pressed={issueGroupMode === 'frame'}
+                  onClick={() => setIssueGroupMode('frame')}
+                >
+                  프레임별
+                </button>
+                <button
+                  type="button"
+                  className={issueGroupMode === 'status' ? 'is-active' : ''}
+                  aria-pressed={issueGroupMode === 'status'}
+                  onClick={() => setIssueGroupMode('status')}
+                >
+                  상태별
+                </button>
+              </div>
+              <div className="l10n-issue-groups">
+                {issueGroups.map((group) => (
+                  <section className="l10n-issue-group" key={group.key}>
+                    <h4>{group.title}</h4>
+                    <ul>
+                      {group.issues.map((issue, index) => (
+                        <li key={`${issue.code}-${issue.rowKey ?? index}`}>
+                          <div className="l10n-issue-heading">
+                            {issueGroupMode === 'frame' && <strong>{issue.label}</strong>}
+                            <span className="l10n-issue-locator">
+                              {issueGroupMode === 'status' && (
+                                <>
+                                  <span>{issue.frameName?.trim() || '기타'}</span>
+                                  <span aria-hidden="true">·</span>
+                                </>
+                              )}
+                              {issue.delimiter && <b>{issue.delimiter}</b>}
+                              {issue.delimiter && issue.korean && <span aria-hidden="true">·</span>}
+                              {issue.korean || '내용 확인 필요'}
+                            </span>
+                            {issue.reference && (
+                              <span className="l10n-issue-reference">{issue.reference}</span>
+                            )}
+                          </div>
+                          <p>{issue.message}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 ))}
-              </ul>
+              </div>
             </details>
           )}
         </section>
       </div>
-    </main>
+      </main>
+      <StatusBar lastUpdateTime={lastUpdateTime ?? null} />
+    </>
   );
 };

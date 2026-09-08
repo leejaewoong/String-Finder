@@ -66,6 +66,45 @@ describe('ConfluenceClient', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('sets both page appearance properties to full width with the correct versions', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      if (!init?.method) {
+        return new Response(JSON.stringify({
+          results: [{
+            key: 'content-appearance-draft',
+            value: 'fixed-width',
+            version: { number: 3 },
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const client = new ConfluenceClient('https://krafton.atlassian.net', 'email', 'token', fetchImpl);
+
+    await client.setPageFullWidth('1');
+
+    expect(requests.map((request) => [request.init?.method ?? 'GET', request.url])).toEqual([
+      ['GET', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property?limit=200'],
+      ['PUT', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property/content-appearance-draft'],
+      ['PUT', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property/content-appearance-published'],
+    ]);
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({
+      key: 'content-appearance-draft',
+      value: 'full-width',
+      version: { number: 4 },
+    });
+    expect(JSON.parse(String(requests[2].init?.body))).toEqual({
+      key: 'content-appearance-published',
+      value: 'full-width',
+      version: { number: 1 },
+    });
+  });
+
   it('uploads a new attachment without exposing the token in the request URL', async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -93,5 +132,48 @@ describe('ConfluenceClient', () => {
     expect(requests[1].url).not.toContain('secret-token');
     expect(requests[1].init?.headers).toMatchObject({ 'X-Atlassian-Token': 'no-check' });
     expect(requests[1].init?.body).toBeInstanceOf(FormData);
+  });
+
+  it('reads, creates, and updates an L10N content property with version control', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      if (!init?.method) {
+        return new Response(JSON.stringify({
+          results: [{
+            key: 'string-finder-l10n-sync',
+            value: { schemaVersion: 1, rows: [] },
+            version: { number: 3 },
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const client = new ConfluenceClient('https://krafton.atlassian.net', 'email', 'token', fetchImpl);
+
+    await expect(client.getContentProperty<{ schemaVersion: number }>(
+      '1',
+      'string-finder-l10n-sync',
+    )).resolves.toEqual({ value: { schemaVersion: 1, rows: [] }, version: 3 });
+    await client.setContentProperty('1', 'new-property', { enabled: true });
+    await client.setContentProperty('1', 'string-finder-l10n-sync', { schemaVersion: 1 }, 3);
+
+    expect(requests.map((request) => [request.init?.method ?? 'GET', request.url])).toEqual([
+      ['GET', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property?limit=200'],
+      ['POST', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property'],
+      ['PUT', 'https://krafton.atlassian.net/wiki/rest/api/content/1/property/string-finder-l10n-sync'],
+    ]);
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({
+      key: 'new-property',
+      value: { enabled: true },
+    });
+    expect(JSON.parse(String(requests[2].init?.body))).toEqual({
+      key: 'string-finder-l10n-sync',
+      value: { schemaVersion: 1 },
+      version: { number: 4 },
+    });
   });
 });

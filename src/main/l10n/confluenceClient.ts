@@ -15,6 +15,16 @@ interface AttachmentListResponse {
   results: Array<{ id: string; title: string }>;
 }
 
+interface ContentPropertyListResponse {
+  results: Array<ContentPropertyResponse>;
+}
+
+interface ContentPropertyResponse {
+  key: string;
+  value: unknown;
+  version: { number: number };
+}
+
 interface ChildPageListResponse {
   results: Array<{
     id: string;
@@ -38,6 +48,11 @@ export interface ConfluenceChildPage {
   title: string;
   version: number;
   storage: string;
+}
+
+export interface ConfluenceContentProperty<T> {
+  value: T;
+  version: number;
 }
 
 export function parseConfluencePageUrl(url: string): string {
@@ -122,6 +137,77 @@ export class ConfluenceClient {
       version: payload.version.number,
       storage: payload.body.storage.value,
     };
+  }
+
+  async setPageFullWidth(pageId: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.request(
+      `/wiki/rest/api/content/${encodeURIComponent(pageId)}/property?limit=200`,
+      { signal },
+    );
+    const payload = await response.json() as ContentPropertyListResponse;
+    const properties = new Map(payload.results.map((property) => [property.key, property]));
+
+    for (const key of ['content-appearance-draft', 'content-appearance-published']) {
+      const property = properties.get(key);
+      if (property?.value === 'full-width') continue;
+
+      await this.request(
+        `/wiki/rest/api/content/${encodeURIComponent(pageId)}/property/${encodeURIComponent(key)}`,
+        {
+          method: 'PUT',
+          signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key,
+            value: 'full-width',
+            version: { number: (property?.version.number ?? 0) + 1 },
+          }),
+        },
+      );
+    }
+  }
+
+  async getContentProperty<T>(
+    pageId: string,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<ConfluenceContentProperty<T> | undefined> {
+    const response = await this.request(
+      `/wiki/rest/api/content/${encodeURIComponent(pageId)}/property?limit=200`,
+      { signal },
+    );
+    const payload = await response.json() as ContentPropertyListResponse;
+    const property = payload.results.find((item) => item.key === key);
+    if (!property) return undefined;
+    return {
+      value: property.value as T,
+      version: property.version.number,
+    };
+  }
+
+  async setContentProperty(
+    pageId: string,
+    key: string,
+    value: unknown,
+    currentVersion?: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const isUpdate = currentVersion !== undefined;
+    await this.request(
+      isUpdate
+        ? `/wiki/rest/api/content/${encodeURIComponent(pageId)}/property/${encodeURIComponent(key)}`
+        : `/wiki/rest/api/content/${encodeURIComponent(pageId)}/property`,
+      {
+        method: isUpdate ? 'PUT' : 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key,
+          value,
+          ...(isUpdate ? { version: { number: currentVersion + 1 } } : {}),
+        }),
+      },
+    );
   }
 
   async uploadAttachment(
